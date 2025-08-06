@@ -40,6 +40,53 @@ body {
     padding: 2rem;
 }
 
+/* Screenshot viewer styles */
+.viewer-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.view-mode-toggle {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.screenshot-container {
+    padding: 2rem;
+    text-align: center;
+    min-height: 400px;
+}
+
+.screenshot-status {
+    margin-bottom: 2rem;
+}
+
+.no-screenshot {
+    padding: 3rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 2px dashed #dee2e6;
+}
+
+.no-screenshot p {
+    margin-bottom: 0.5rem;
+    color: #6c757d;
+}
+
+.error {
+    padding: 2rem;
+    background: #f8d7da;
+    border-radius: 8px;
+    color: #721c24;
+}
+
+.dom-container {
+    padding: 1rem;
+}
+
 .view-container {
     background: white;
     border-radius: 12px;

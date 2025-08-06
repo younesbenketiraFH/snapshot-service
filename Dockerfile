@@ -1,7 +1,19 @@
 FROM node:18-alpine
 
-# Install SQLite
-RUN apk add --no-cache sqlite
+# Install SQLite and Puppeteer dependencies
+RUN apk add --no-cache \
+    sqlite \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    curl
+
+# Tell Puppeteer to use installed Chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Create app directory
 WORKDIR /usr/src/app

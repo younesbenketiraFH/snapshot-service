@@ -4,6 +4,7 @@ class SnapshotDashboard {
         this.filteredSnapshots = [];
         this.currentSnapshot = null;
         this.zoomLevel = 1.0;
+        this.viewMode = 'screenshot'; // 'screenshot' or 'dom'
         
         this.init();
     }
@@ -30,6 +31,11 @@ class SnapshotDashboard {
         document.getElementById('fullscreen-btn').addEventListener('click', () => this.toggleFullscreen());
         document.getElementById('download-btn').addEventListener('click', () => this.downloadSnapshot());
         document.getElementById('open-direct-btn').addEventListener('click', () => this.openDirect());
+        
+        // Screenshot controls
+        document.getElementById('screenshot-mode').addEventListener('click', () => this.switchToScreenshotMode());
+        document.getElementById('dom-mode').addEventListener('click', () => this.switchToDomMode());
+        document.getElementById('generate-screenshot').addEventListener('click', () => this.generateScreenshot());
     }
 
     async loadSnapshots() {
@@ -187,8 +193,8 @@ class SnapshotDashboard {
             </div>
         `;
         
-        // Render the exact snapshot in iframe - CRITICAL FOR LEGAL ACCURACY
-        this.renderExactSnapshot();
+        // Load screenshot by default, fallback to DOM view
+        this.loadScreenshot();
     }
 
     renderExactSnapshot() {
@@ -370,9 +376,12 @@ class SnapshotDashboard {
         document.getElementById('snapshots-view').style.display = 'block';
         document.getElementById('snapshot-view').style.display = 'none';
         
-        // Clean up iframe
+        // Clean up iframe and screenshot
         const iframe = document.getElementById('snapshot-frame');
         iframe.src = 'about:blank';
+        const screenshotImage = document.getElementById('screenshot-image');
+        screenshotImage.style.display = 'none';
+        screenshotImage.src = '';
     }
 
     showSnapshotViewer() {
@@ -412,6 +421,138 @@ class SnapshotDashboard {
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    // Screenshot functionality
+    async loadScreenshot() {
+        const snapshot = this.currentSnapshot;
+        const screenshotStatus = document.getElementById('screenshot-status');
+        const screenshotImage = document.getElementById('screenshot-image');
+        
+        try {
+            screenshotStatus.innerHTML = '<div class="loading">Loading screenshot...</div>';
+            screenshotImage.style.display = 'none';
+            
+            const response = await fetch(`/snapshots/${snapshot.id}/screenshot`);
+            
+            if (response.ok) {
+                // Screenshot exists
+                const blob = await response.blob();
+                const imageUrl = URL.createObjectURL(blob);
+                
+                screenshotImage.src = imageUrl;
+                screenshotImage.style.display = 'block';
+                screenshotStatus.style.display = 'none';
+                
+                console.log('Screenshot loaded successfully');
+            } else if (response.status === 404) {
+                // No screenshot exists, show generate button
+                screenshotStatus.innerHTML = `
+                    <div class="no-screenshot">
+                        <p>📷 No screenshot available for this snapshot</p>
+                        <p>Click "Generate Screenshot" to create one</p>
+                    </div>
+                `;
+            } else {
+                throw new Error(`Failed to load screenshot: ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error loading screenshot:', error);
+            screenshotStatus.innerHTML = `
+                <div class="error">
+                    <p>❌ Error loading screenshot</p>
+                    <p>${error.message}</p>
+                </div>
+            `;
+        }
+    }
+
+    async generateScreenshot() {
+        const snapshot = this.currentSnapshot;
+        const button = document.getElementById('generate-screenshot');
+        const originalText = button.textContent;
+        
+        try {
+            button.disabled = true;
+            button.textContent = '⏳ Generating...';
+            
+            console.log('Generating screenshot for snapshot:', snapshot.id);
+            
+            const response = await fetch(`/snapshots/${snapshot.id}/screenshot`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    format: 'webp',
+                    quality: 90,
+                    fullPage: false
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('Screenshot generated successfully:', data.result);
+                button.textContent = '✅ Generated!';
+                
+                // Reload the screenshot
+                setTimeout(() => {
+                    this.loadScreenshot();
+                    button.textContent = originalText;
+                    button.disabled = false;
+                }, 1000);
+            } else {
+                throw new Error(data.message || 'Failed to generate screenshot');
+            }
+        } catch (error) {
+            console.error('Error generating screenshot:', error);
+            button.textContent = '❌ Failed';
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.disabled = false;
+            }, 2000);
+            
+            this.showError(`Screenshot generation failed: ${error.message}`);
+        }
+    }
+
+    switchToScreenshotMode() {
+        this.viewMode = 'screenshot';
+        
+        // Update buttons
+        document.getElementById('screenshot-mode').classList.add('active');
+        document.getElementById('screenshot-mode').classList.remove('btn-secondary');
+        document.getElementById('screenshot-mode').classList.add('btn-primary');
+        
+        document.getElementById('dom-mode').classList.remove('active');
+        document.getElementById('dom-mode').classList.remove('btn-primary');
+        document.getElementById('dom-mode').classList.add('btn-secondary');
+        
+        // Show/hide views
+        document.getElementById('screenshot-view').style.display = 'block';
+        document.getElementById('dom-view').style.display = 'none';
+        
+        this.loadScreenshot();
+    }
+
+    switchToDomMode() {
+        this.viewMode = 'dom';
+        
+        // Update buttons
+        document.getElementById('dom-mode').classList.add('active');
+        document.getElementById('dom-mode').classList.remove('btn-secondary');
+        document.getElementById('dom-mode').classList.add('btn-primary');
+        
+        document.getElementById('screenshot-mode').classList.remove('active');
+        document.getElementById('screenshot-mode').classList.remove('btn-primary');
+        document.getElementById('screenshot-mode').classList.add('btn-secondary');
+        
+        // Show/hide views
+        document.getElementById('screenshot-view').style.display = 'none';
+        document.getElementById('dom-view').style.display = 'block';
+        
+        this.renderExactSnapshot();
     }
 }
 

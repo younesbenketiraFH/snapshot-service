@@ -186,29 +186,35 @@ class CompressionUtils {
         const { 
             htmlCompressed, 
             cssCompressed, 
+            html_compressed,
+            css_compressed,
             compression_type: compressionType 
         } = compressedSnapshot;
+        
+        // Handle both camelCase and snake_case field names
+        const htmlData = htmlCompressed || html_compressed;
+        const cssData = cssCompressed || css_compressed;
         
         const startTime = Date.now();
         
         console.log('Decompressing snapshot:', {
             id: compressedSnapshot.id,
             compressionType,
-            hasHtml: !!htmlCompressed,
-            hasCss: !!cssCompressed
+            hasHtml: !!htmlData,
+            hasCss: !!cssData
         });
 
         try {
             const result = { ...compressedSnapshot };
 
             // Decompress HTML
-            if (htmlCompressed) {
-                result.html = await this.decompress(htmlCompressed, compressionType);
+            if (htmlData) {
+                result.html = await this.decompress(htmlData, compressionType);
             }
 
             // Decompress CSS
-            if (cssCompressed) {
-                result.css = await this.decompress(cssCompressed, compressionType);
+            if (cssData) {
+                result.css = await this.decompress(cssData, compressionType);
             }
 
             const decompressionTime = Date.now() - startTime;

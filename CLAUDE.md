@@ -1,64 +1,70 @@
-# Snapshot Service
+# Legal DOM Snapshot Service
 
-## Project Overview
+## What This Is
 
-This is a Node.js Express service that receives DOM snapshots with inline styles and queues jobs with Redis BullMQ for screenshot generation using Puppeteer browser pool.
+This is a **legal evidence DOM snapshot service** designed for capturing and preserving exact web page states for legal purposes. The service receives full DOM snapshots with inline CSS styles, compresses and stores them in SQLite, processes them through a Redis queue system, and generates high-fidelity screenshots using a Puppeteer browser pool.
+
+**Primary Use Case**: Capturing checkout pages, booking confirmations, and other critical web interactions for legal evidence in travel/booking disputes.
+
+**Key Features**: Compression (80%+ size reduction), exact 1:1 visual reproduction, legal watermarking, screenshot generation, and web dashboard for evidence review.
 
 ## Current Implementation Status
 
 ### ✅ Completed
-- **Basic Express Server**: Running on port 8847
-- **Health Check Endpoint**: `GET /health`
-- **Snapshot Endpoint**: `POST /snapshot` - receives, compresses, and queues DOM snapshots
-- **SQLite Database**: Persistent storage with compression support
-- **Redis BullMQ Queue System**: Asynchronous job processing with Redis
-- **Compression System**: Brotli/Gzip compression for efficient storage
-- **Database API**: GET endpoints for retrieving snapshots (auto-decompresses)
-- **Legal Dashboard**: Web interface for viewing snapshots with 1:1 accuracy
-- **Exact CSS Rendering**: Preserves all inline styles, computed styles, and external CSS
-- **Legal Evidence Features**: Watermarking, metadata, exact viewport rendering
-- **Queue Management APIs**: Job status tracking and queue statistics
-- **Docker Containerization**: Full Docker setup with Redis
-- **Security Middleware**: Helmet, CORS, Morgan logging
-- **Large Payload Support**: 10MB limit with compression for efficient storage
-- **SnapshotManager Integration**: Enhanced JavaScript client with comprehensive CSS extraction
+- **Express Server**: Running on port 8847 with security middleware
+- **Shared Resource Management**: Single database connection and browser pool shared across all services
+- **Snapshot API**: `POST /snapshot` - receives, compresses, and queues DOM snapshots
+- **SQLite Database**: Persistent storage with Brotli/Gzip compression
+- **Redis BullMQ Queue**: Asynchronous job processing with automatic screenshot generation
+- **Puppeteer Browser Pool**: 3 headless Chrome instances for screenshot generation
+- **Screenshot API**: Generate and retrieve WebP screenshots of snapshots
+- **Compression System**: Handles both camelCase and snake_case field names
+- **Legal Dashboard**: Web interface with screenshot/DOM view toggle
+- **Database APIs**: GET endpoints for snapshots, screenshots, and metadata
+- **Legal Evidence Features**: Exact viewport rendering, metadata preservation
+- **Queue Management**: Job status tracking and statistics
+- **Docker Setup**: Full containerization with Alpine Linux optimizations
+- **Service Architecture**: Modular design with browserService, queueService, database
 
-### 🚧 Planned Features
-- Puppeteer browser pool management
-- Screenshot generation from DOM snapshots (after job processing)
-- Image storage and retrieval system
-- Advanced job retry strategies
-- Webhook notifications for job completion
-- Performance metrics and monitoring
+### 🔧 Recent Updates
+- **Screenshot Generation**: Automatic screenshot creation during queue processing
+- **Browser Service**: Decompresses snapshots and loads them directly into browsers (not URLs)
+- **Database Field Compatibility**: Handles both JavaScript camelCase and SQL snake_case naming
+- **Resource Optimization**: Single shared database and browser pool across all services
+- **Simplified Logging**: Cleaner startup logs without redundant information
 
 ## Architecture
 
 ```
 /Users/younesbenketira/Code/travel/
-├── solar/                              (Main PHP project)
+├── solar/                                    (Main PHP project)
+│   ├── include/Mv/Ota/OtaCommon/View/Helper/
+│   │   └── SnapshotV3.php                   (PHP helper)
 │   └── include/Mv/Ota/OtaCommon/View/Partials/Js/
-│       └── SnapshotManager.js.php      (Client-side snapshot capture)
-└── snapshot-service/                   (Node.js service)
-    ├── index.js                        (Express server)
-    ├── package.json
-    └── CLAUDE.md                       (This file)
+│       └── SnapshotHelperV3.js.php          (Client-side capture)
+└── snapshot-service/                         (Node.js service)
+    ├── index.js                              (Express server)
+    ├── database.js                           (SQLite database)
+    ├── compression.js                        (Brotli/Gzip compression)
+    ├── services/
+    │   ├── browserService.js                 (Puppeteer browser pool)
+    │   └── queueService.js                   (Redis BullMQ queue)
+    ├── controllers/
+    │   ├── dashboardController.js            (Dashboard routing)
+    │   ├── snapshotController.js             (Snapshot & screenshot APIs)
+    │   └── queueController.js                (Queue management APIs)
+    └── public/
+        ├── dashboard.html                    (Legal evidence dashboard)
+        ├── dashboard.js                      (Dashboard functionality)
+        └── dashboard.css                     (Dashboard styling)
 ```
 
 ## API Endpoints
 
-### `GET /health`
-Health check endpoint that returns server status.
+### Core Snapshot APIs
 
-**Response:**
-```json
-{
-  "status": "ok",
-  "timestamp": "2025-08-06T14:18:32.000Z"
-}
-```
-
-### `POST /snapshot`
-Receives DOM snapshot requests and saves them to SQLite database.
+#### `POST /snapshot`
+Receives DOM snapshots, compresses them, and queues for processing with automatic screenshot generation.
 
 **Request Body:**
 ```json
@@ -67,11 +73,9 @@ Receives DOM snapshot requests and saves them to SQLite database.
   "css": "body { margin: 0; }...",
   "options": {
     "url": "https://example.com/checkout",
-    "timestamp": "2025-08-06T14:18:32.000Z",
     "viewport": { "width": 1920, "height": 1080 },
     "type": "checkout_page_load",
-    "checkout_id": "abc123",
-    "search_id": "def456"
+    "checkout_id": "abc123"
   }
 }
 ```
@@ -81,7 +85,7 @@ Receives DOM snapshot requests and saves them to SQLite database.
 {
   "success": true,
   "message": "Snapshot compressed, saved, and queued for processing",
-  "id": "snapshot_1725628712000_abc123def",
+  "id": "snapshot_1754493166944_y916bfk7w",
   "jobId": "12345",
   "queuePosition": 1,
   "compressionStats": {
@@ -94,162 +98,150 @@ Receives DOM snapshot requests and saves them to SQLite database.
 }
 ```
 
-### `GET /snapshots`
-Retrieves recent snapshots with metadata (excludes HTML/CSS content).
+#### `GET /snapshots`
+Retrieves recent snapshots with metadata.
 
 **Query Parameters:**
-- `limit`: Number of snapshots to retrieve (default: 50, max: 200)
+- `limit`: Number of snapshots (default: 50)
 
-**Response:**
+#### `GET /snapshots/:id`
+Retrieves specific snapshot with decompressed HTML/CSS content.
+
+### Screenshot APIs
+
+#### `POST /snapshots/:id/screenshot`
+Generates a screenshot of the snapshot by loading decompressed DOM directly into browser.
+
+**Request Body (optional):**
 ```json
 {
-  "success": true,
-  "snapshots": [
-    {
-      "id": "snapshot_1725628712000_abc123def",
-      "url": "https://example.com/checkout",
-      "viewport_width": 1920,
-      "viewport_height": 1080,
-      "created_at": "2025-08-06 14:18:32",
-      "html_size": 45678,
-      "css_size": 12345
-    }
-  ],
-  "count": 1
+  "format": "webp",
+  "quality": 90,
+  "fullPage": false
 }
 ```
 
-### `GET /snapshots/:id`
-Retrieves a specific snapshot with full HTML and CSS content.
+#### `GET /snapshots/:id/screenshot`
+Retrieves the screenshot image (WebP format).
 
-**Response:**
-```json
-{
-  "success": true,
-  "snapshot": {
-    "id": "snapshot_1725628712000_abc123def",
-    "html": "<html>...</html>",
-    "css": "body { margin: 0; }...",
-    "url": "https://example.com/checkout",
-    "viewport_width": 1920,
-    "viewport_height": 1080,
-    "options": { "type": "checkout_page_load" },
-    "created_at": "2025-08-06 14:18:32",
-    "updated_at": "2025-08-06 14:18:32"
-  }
-}
-```
+**Response Headers:**
+- `Content-Type`: image/webp
+- `X-Screenshot-Width`: Screenshot width
+- `X-Screenshot-Height`: Screenshot height
+- `X-Screenshot-Taken-At`: Generation timestamp
 
-### `GET /` or `GET /dashboard`
-Serves the legal dashboard interface for viewing snapshots.
+### Dashboard and Utility APIs
+
+#### `GET /` or `GET /dashboard`
+Legal evidence dashboard with screenshot/DOM view toggle.
 
 **Features:**
-- Lists all captured snapshots with metadata
+- Screenshot view by default (faster loading)
+- DOM view toggle for interactive content
+- Generate screenshot button for missing screenshots
 - Filtering by URL and date
-- 1:1 exact rendering of snapshots for legal evidence
-- Zoom controls and fullscreen viewing
-- Download snapshots as HTML files
-- Legal watermarking and metadata preservation
+- Legal metadata display
 
-### `GET /queue/stats`
-Returns current queue statistics.
+#### `GET /render/:id`
+Server-side rendered snapshot for legal evidence (used by DOM view).
 
-**Response:**
-```json
-{
-  "success": true,
-  "stats": {
-    "waiting": 5,
-    "active": 2,
-    "completed": 150,
-    "failed": 3,
-    "total": 160
-  }
-}
+#### `GET /browser/stats`
+Browser pool statistics.
+
+#### `GET /queue/stats`
+Queue system statistics.
+
+#### `GET /queue/job/:jobId`
+Specific job status.
+
+#### `GET /health`
+Service health check.
+
+## Database Schema
+
+### snapshots table
+```sql
+CREATE TABLE snapshots (
+  id TEXT PRIMARY KEY,
+  html TEXT,                                  -- Nullable (compressed-only storage)
+  css TEXT,                                   -- Nullable (compressed-only storage)
+  html_compressed BLOB,                       -- Brotli/Gzip compressed HTML
+  css_compressed BLOB,                        -- Brotli/Gzip compressed CSS
+  compression_type TEXT DEFAULT 'none',
+  original_html_size INTEGER DEFAULT 0,
+  original_css_size INTEGER DEFAULT 0,
+  compressed_html_size INTEGER DEFAULT 0,
+  compressed_css_size INTEGER DEFAULT 0,
+  url TEXT,
+  viewport_width INTEGER,
+  viewport_height INTEGER,
+  options TEXT,                               -- JSON metadata
+  queue_job_id TEXT,
+  processing_status TEXT DEFAULT 'pending',
+  screenshot BLOB,                            -- WebP screenshot data
+  screenshot_format TEXT,                     -- Usually 'webp'
+  screenshot_width INTEGER,
+  screenshot_height INTEGER,
+  screenshot_size INTEGER,
+  screenshot_metadata TEXT,                   -- JSON screenshot info
+  screenshot_taken_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  processed_at DATETIME
+);
 ```
 
-### `GET /queue/job/:jobId`
-Returns status of a specific job.
+**Indexes:**
+- `idx_snapshots_created_at` - Time-based queries
+- `idx_snapshots_url` - URL-based queries  
+- `idx_snapshots_status` - Processing status
+- `idx_snapshots_job_id` - Job tracking
 
-**Response:**
-```json
-{
-  "success": true,
-  "job": {
-    "id": "12345",
-    "status": "completed",
-    "progress": 100,
-    "data": { "snapshotId": "snapshot_123" },
-    "processedOn": 1725628712000,
-    "finishedOn": 1725628715000
-  }
-}
-```
+## Service Architecture
 
-## Client Integration
+### Resource Management
+- **Single Database Connection**: Shared across all services via dependency injection
+- **Browser Pool**: 3 Puppeteer instances shared between API and queue processing
+- **Service Initialization Order**: Database → BrowserService → QueueService
 
-The service integrates with the solar PHP project through `SnapshotManager.js.php` which:
+### Screenshot Generation Process
+1. **Snapshot Received** → Compressed and stored in database
+2. **Queue Processing** → Decompresses snapshot data
+3. **Browser Loading** → Loads HTML/CSS directly into Puppeteer (not via URL)
+4. **Screenshot Capture** → Takes WebP screenshot at original viewport size
+5. **Database Storage** → Saves screenshot BLOB with metadata
 
-- Captures full DOM by default (when no selector provided)
-- Extracts inline CSS from all stylesheets
-- Includes metadata (URL, viewport, timestamp)
-- Sends snapshots to `http://localhost:8847/snapshot`
+### Compression System
+- **Algorithms**: Brotli (default) and Gzip fallback
+- **Efficiency**: 70-90% size reduction typical
+- **Field Compatibility**: Handles both `htmlCompressed` and `html_compressed` naming
+- **Auto-decompression**: Transparent decompression for API responses
 
-**Usage in PHP templates:**
-```javascript
-// Take snapshot of entire page (default)
-SnapshotManager.takeSnapshot();
-
-// Take snapshot with options
-SnapshotManager.takeSnapshot(null, {
-    type: 'checkout_page_load',
-    checkout_id: '12345'
-});
-```
+### Queue System
+- **Redis BullMQ**: Persistent job queue with Redis
+- **Concurrency**: 5 concurrent job processors
+- **Retry Logic**: 3 attempts with exponential backoff  
+- **Auto-cleanup**: Removes old completed/failed jobs
+- **Screenshot Integration**: Automatic screenshot generation during processing
 
 ## Docker Setup
 
-### Development with Docker Compose
-
+### Production with Docker Compose
 ```bash
-# Build and start all services (snapshot-service + Redis)
-docker-compose up --build
-
-# Start in background
+# Start all services
 docker-compose up -d
 
 # View logs
 docker-compose logs -f snapshot-service
-docker-compose logs -f redis
 
-# Stop services
+# Stop services  
 docker-compose down
-
-# Stop and remove volumes
-docker-compose down -v
 ```
 
-### Individual Docker Commands
-
+### Development
 ```bash
-# Build the image
-docker build -t snapshot-service .
-
-# Run the container
-docker run -p 8847:8847 \
-  -e DATABASE_PATH=/usr/src/app/data/snapshots.db \
-  -v $(pwd)/data:/usr/src/app/data \
-  snapshot-service
-```
-
-## Development Commands
-
-```bash
-# Start the service locally
+# Start locally
 npm start
-
-# Development mode (same as start currently)
-npm run dev
 
 # Install dependencies
 npm install
@@ -258,117 +250,98 @@ npm install
 ## Environment Variables
 
 - `PORT`: Server port (default: 8847)
-- `DATABASE_PATH`: SQLite database file path (default: ./data/snapshots.db)
-- `REDIS_URL`: Redis connection URL (default: redis://localhost:6379)
-- `NODE_ENV`: Environment (development/production)
+- `DATABASE_PATH`: SQLite file path (default: ./database/snapshots.db)
+- `REDIS_URL`: Redis URL (default: redis://localhost:6379)
+- `PUPPETEER_EXECUTABLE_PATH`: Chrome executable for Docker
+- `NODE_ENV`: Environment mode
 
 ## Dependencies
 
+### Core
 - **express**: ^5.1.0 - Web framework
-- **cors**: ^2.8.5 - CORS middleware
-- **helmet**: ^8.1.0 - Security middleware
-- **morgan**: ^1.10.1 - Request logging
-- **sqlite3**: ^5.1.6 - SQLite database driver
-- **ioredis**: ^5.3.2 - Redis client
-- **bullmq**: ^5.1.0 - Redis-based job queue
-- **jsdom**: ^24.0.0 - Server-side DOM parsing
-- **dotenv**: ^16.3.1 - Environment variable management
+- **sqlite3**: ^5.1.7 - Database
+- **puppeteer**: ^24.16.0 - Browser automation
+- **bullmq**: ^5.56.9 - Job queue
+- **ioredis**: ^5.7.0 - Redis client
 
-## Database Schema
+### Utilities  
+- **jsdom**: ^26.1.0 - DOM parsing
+- **helmet**: ^8.1.0 - Security
+- **cors**: ^2.8.5 - CORS
+- **morgan**: ^1.10.1 - Logging
+- **dotenv**: ^17.2.1 - Environment
 
-### snapshots table
-```sql
-CREATE TABLE snapshots (
-  id TEXT PRIMARY KEY,                    -- Unique snapshot identifier
-  html TEXT,                              -- Full HTML content (nullable for compressed-only)
-  css TEXT,                               -- Inline CSS styles (nullable for compressed-only)
-  html_compressed BLOB,                   -- Compressed HTML content
-  css_compressed BLOB,                    -- Compressed CSS styles  
-  compression_type TEXT DEFAULT 'none',  -- Compression algorithm used
-  original_html_size INTEGER DEFAULT 0,  -- Original HTML size in bytes
-  original_css_size INTEGER DEFAULT 0,   -- Original CSS size in bytes
-  compressed_html_size INTEGER DEFAULT 0,-- Compressed HTML size in bytes
-  compressed_css_size INTEGER DEFAULT 0, -- Compressed CSS size in bytes
-  url TEXT,                               -- Source URL
-  viewport_width INTEGER,                 -- Viewport width
-  viewport_height INTEGER,                -- Viewport height
-  options TEXT,                           -- JSON options object
-  queue_job_id TEXT,                      -- BullMQ job identifier
-  processing_status TEXT DEFAULT 'pending', -- Job processing status
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  processed_at DATETIME                   -- When job completed processing
-);
+## Client Integration
+
+### SnapshotHelperV3.js.php
+Located at: `/Users/younesbenketira/Code/travel/solar/include/Mv/Ota/OtaCommon/View/Partials/Js/SnapshotHelperV3.js.php`
+
+**Usage:**
+```javascript
+// Capture full page
+SnapshotHelper.takeSnapshot();
+
+// With metadata
+SnapshotHelper.takeSnapshot(null, {
+    type: 'checkout_confirmation',
+    booking_id: 'ABC123'
+});
 ```
 
-**Indexes:**
-- `idx_snapshots_created_at` - For time-based queries
-- `idx_snapshots_url` - For URL-based queries
-- `idx_snapshots_status` - For processing status queries
-- `idx_snapshots_job_id` - For job tracking queries
-
-## Queue System Architecture
-
-### Flow Overview
-1. **Snapshot Received** → HTML/CSS captured by SnapshotManager
-2. **Compression** → Data compressed using Brotli/Gzip (80%+ reduction)
-3. **Database Storage** → Compressed data saved to SQLite with metadata
-4. **Queue Job Created** → BullMQ job created with snapshot reference
-5. **Job Processing** → Worker decompresses data and processes (placeholder for screenshots)
-6. **Status Updates** → Processing status tracked in database
-
-### Compression Benefits
-- **Storage Efficiency**: 70-90% size reduction typical
-- **Network Performance**: Faster data transfer
-- **Cost Savings**: Reduced storage requirements
-- **Scalability**: Handle larger volumes efficiently
-
-### Queue Features
-- **Concurrency**: 5 concurrent job processors
-- **Retry Logic**: 3 attempts with exponential backoff
-- **Job Persistence**: Jobs survive server restarts
-- **Status Tracking**: Real-time job progress monitoring
-- **Cleanup**: Automatic removal of old completed/failed jobs
-
-## Next Steps
-
-1. **Redis BullMQ Integration**
-   - Add Redis connection
-   - Implement job queue for snapshot processing
-   - Add job status endpoints
-
-2. **Puppeteer Implementation**
-   - Browser pool management
-   - DOM rendering from snapshot data
-   - Screenshot capture and optimization
-
-3. **Storage System**
-   - Image file storage (local/cloud)
-   - Metadata persistence
-   - Cleanup/retention policies
-
-## Important Notes
-
-⚠️ **KEEP THIS FILE UPDATED**: This CLAUDE.md file should be updated whenever changes are made to the snapshot service. This helps Claude understand the current state and architecture for future development.
-
-## File Locations
-
-- **Service**: `/Users/younesbenketira/Code/travel/snapshot-service/`
-- **Client**: `/Users/younesbenketira/Code/travel/solar/include/Mv/Ota/OtaCommon/View/Partials/Js/SnapshotManager.js.php`
-- **Integration**: `/Users/younesbenketira/Code/travel/solar/include/Mv/Ota/Jfly/App/Checkout/View/billing_dark_headers.php`
+### Integration Points
+- **Checkout Pages**: Automatic capture on page load
+- **Confirmation Pages**: Capture booking confirmations
+- **Error States**: Capture error pages for debugging
 
 ## Container Architecture
 
 ```
-docker-compose.yml
-├── snapshot-service (Node.js Express API)
+Docker Network: snapshot-network
+├── snapshot-service
 │   ├── Port: 8847
-│   ├── Database: SQLite (persistent volume)
-│   └── Networks: snapshot-network
-└── redis (Redis 7 Alpine)
+│   ├── Database: SQLite (volume mounted)
+│   ├── Browser Pool: 3 Chromium instances
+│   └── Features: Compression, Screenshots, Legal Dashboard
+└── redis
     ├── Port: 6379
-    ├── Data: Persistent volume
-    └── Networks: snapshot-network
+    ├── Data: Persistent Redis volume
+    └── Purpose: Job queue and session storage
 ```
+
+## Legal Evidence Features
+
+### Exact Reproduction
+- **1:1 Viewport**: Exact original viewport dimensions preserved
+- **CSS Accuracy**: All inline styles, computed styles, and external CSS captured
+- **Font Rendering**: Consistent font rendering across environments
+- **Screenshot Fidelity**: WebP screenshots at original resolution
+
+### Metadata Preservation  
+- **Capture Timestamp**: Precise capture time
+- **Source URL**: Original page URL
+- **Browser Info**: Viewport size, user agent
+- **Legal Watermarks**: Evidence identification on screenshots
+
+### Dashboard Features
+- **Dual View**: Screenshot (fast) and DOM (interactive) viewing modes
+- **Filtering**: By URL, date range, status
+- **Export**: Download HTML files with legal metadata
+- **Evidence Trail**: Complete processing history
+
+## Important Notes
+
+⚠️ **File Naming**: The codebase uses both camelCase (JavaScript) and snake_case (database) field names. The compression system handles both automatically.
+
+⚠️ **Browser Dependencies**: Puppeteer requires specific system dependencies in Docker. The Dockerfile includes all necessary packages for Alpine Linux.
+
+⚠️ **Resource Sharing**: All services share single database connection and browser pool for efficiency. Services receive dependencies via injection pattern.
+
+⚠️ **Legal Compliance**: Screenshots and DOM snapshots preserve exact visual state for legal evidence purposes. Do not modify rendering logic without legal review.
+
+## File Locations
+
+- **Service Root**: `/Users/younesbenketira/Code/travel/snapshot-service/`
+- **Client Helper**: `/Users/younesbenketira/Code/travel/solar/include/Mv/Ota/OtaCommon/View/Partials/Js/SnapshotHelperV3.js.php`
+- **Integration Examples**: Various checkout view files in solar/include/Mv/Ota/*/App/Checkout/View/
 
 Last Updated: 2025-08-06

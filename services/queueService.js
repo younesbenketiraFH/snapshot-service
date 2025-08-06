@@ -1,7 +1,8 @@
 const { Queue, Worker } = require('bullmq');
 const Redis = require('ioredis');
-const Database = require('./database');
-const CompressionUtils = require('./compression');
+const Database = require('../database');
+const CompressionUtils = require('../compression');
+const BrowserService = require('./browserService');
 
 class SnapshotQueue {
     constructor(redisUrl = null) {
@@ -19,20 +20,30 @@ class SnapshotQueue {
         // Initialize queue and worker
         this.queue = null;
         this.worker = null;
-        this.db = new Database();
+        this.db = null; // Will be injected from outside
+        this.browserService = null; // Will be injected from outside
         
-        console.log('SnapshotQueue initialized with Redis URL:', this.redisUrl);
     }
 
-    async initialize() {
+    async initialize(browserService = null, db = null) {
         try {
             // Test Redis connection
             await this.redisConnection.ping();
             console.log('✅ Redis connection established');
             
-            // Initialize database
-            await this.db.initialize();
-            console.log('✅ Database initialized for queue system');
+            // Use shared database if provided
+            if (db) {
+                this.db = db;
+            } else if (!this.db) {
+                throw new Error('Database must be provided to queue system');
+            }
+            
+            // Use shared browser service if provided
+            if (browserService) {
+                this.browserService = browserService;
+            } else if (!this.browserService) {
+                throw new Error('Browser service must be provided to queue system');
+            }
             
             // Create BullMQ queue
             this.queue = new Queue(this.queueName, {
@@ -87,7 +98,6 @@ class SnapshotQueue {
                 console.error('🔥 Queue error:', err);
             });
 
-            console.log('🚀 BullMQ queue system initialized successfully');
             
         } catch (error) {
             console.error('❌ Failed to initialize queue system:', error);
@@ -165,16 +175,27 @@ class SnapshotQueue {
 
             await job.updateProgress(70);
 
-            // Here is where we would do actual processing (e.g., screenshot generation)
-            // For now, we're just demonstrating the decompression
-            console.log('🎯 Snapshot processing placeholder - decompressed sizes:', {
-                snapshotId,
-                htmlLength: decompressedSnapshot.html?.length || 0,
-                cssLength: decompressedSnapshot.css?.length || 0
-            });
-
-            // Simulate some processing time
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Generate screenshot using browser service
+            console.log('📸 Generating screenshot for processed snapshot:', snapshotId);
+            try {
+                const screenshotResult = await this.browserService.takeSnapshotScreenshot(snapshotId, {
+                    format: 'webp',
+                    quality: 85,
+                    fullPage: false
+                });
+                
+                console.log('✅ Screenshot generated during queue processing:', {
+                    snapshotId,
+                    screenshotSize: screenshotResult.screenshotSize,
+                    format: screenshotResult.format
+                });
+            } catch (screenshotError) {
+                console.warn('⚠️ Screenshot generation failed during queue processing:', {
+                    snapshotId,
+                    error: screenshotError.message
+                });
+                // Continue processing even if screenshot fails
+            }
 
             await job.updateProgress(90);
 
@@ -304,10 +325,7 @@ class SnapshotQueue {
                 console.log('✅ Redis connection closed');
             }
             
-            if (this.db) {
-                this.db.close();
-                console.log('✅ Database connection closed');
-            }
+            // Note: Browser service and database shutdown are handled by the main service
             
         } catch (error) {
             console.error('❌ Error during shutdown:', error);

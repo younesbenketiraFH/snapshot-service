@@ -11,7 +11,6 @@ class Database {
     const databaseDir = path.dirname(this.dbPath);
     if (!fs.existsSync(databaseDir)) {
       fs.mkdirSync(databaseDir, { recursive: true });
-      console.log('Created database directory:', databaseDir);
     }
   }
 
@@ -23,7 +22,6 @@ class Database {
           return reject(err);
         }
         
-        console.log('Connected to SQLite database:', this.dbPath);
         this.createTables().then(resolve).catch(reject);
       });
     });
@@ -49,6 +47,13 @@ class Database {
           options TEXT,
           queue_job_id TEXT,
           processing_status TEXT DEFAULT 'pending',
+          screenshot BLOB,
+          screenshot_format TEXT,
+          screenshot_width INTEGER,
+          screenshot_height INTEGER,
+          screenshot_size INTEGER,
+          screenshot_metadata TEXT,
+          screenshot_taken_at DATETIME,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           processed_at DATETIME
@@ -76,7 +81,6 @@ class Database {
             return reject(err);
           }
           
-          console.log('Database tables created successfully');
           resolve();
         });
       });
