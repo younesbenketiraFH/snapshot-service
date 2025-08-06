@@ -56,14 +56,16 @@
             <div class="snapshot-viewer">
                 <!-- Tab Navigation -->
                 <div class="tab-navigation">
-                    <button id="screenshot-tab" class="tab-btn">📸 Screenshot</button>
-                    <button id="dom-tab" class="tab-btn active">🌐 DOM View</button>
-                    <button id="html-tab" class="tab-btn">📄 Raw HTML</button>
-                    <button id="css-tab" class="tab-btn">🎨 Raw CSS</button>
+                    <button id="screenshot-tab" class="tab-btn active">📸 Screenshot</button>
+                    <button id="dom-tab" class="tab-btn">🌐 DOM View</button>
+                    <button id="screenshot-data-tab" class="tab-btn">📊 Screenshot Data</button>
                 </div>
                 
                 <!-- Screenshot Tab Content -->
-                <div id="screenshot-content" class="tab-content">
+                <div id="screenshot-content" class="tab-content active">
+                    <div class="screenshot-controls">
+                        <button id="replay-screenshot-btn" class="btn btn-sm">🔄 Replay Screenshot</button>
+                    </div>
                     <div class="screenshot-status" id="screenshot-status">
                         <div class="loading">Loading screenshot...</div>
                     </div>
@@ -71,7 +73,7 @@
                 </div>
                 
                 <!-- DOM Tab Content -->
-                <div id="dom-content" class="tab-content active">
+                <div id="dom-content" class="tab-content">
                     <div class="dom-status" id="dom-status">
                         <div class="loading">Loading DOM preview...</div>
                     </div>
@@ -79,37 +81,32 @@
                             title="DOM Preview"></iframe>
                 </div>
                 
-                <!-- Raw HTML Tab Content -->
-                <div id="html-content" class="tab-content">
-                    <div class="raw-content-header">
-                        <div class="content-info">
-                            <span class="content-label">Raw HTML Content</span>
-                            <span class="content-size" id="html-size">Loading...</span>
-                        </div>
-                        <div class="content-actions">
-                            <button id="copy-html-btn" class="btn btn-sm">📋 Copy</button>
-                            <button id="download-html-btn" class="btn btn-sm">💾 Download</button>
-                        </div>
+                <!-- Screenshot Data Tab Content -->
+                <div id="screenshot-data-content" class="tab-content">
+                    <div class="screenshot-data-header">
+                        <h3>Screenshot Debug Information</h3>
+                        <button id="refresh-screenshot-data-btn" class="btn btn-sm">🔄 Refresh Data</button>
                     </div>
-                    <div class="raw-content-container">
-                        <pre id="html-content-display" class="raw-content"><code>Loading raw HTML...</code></pre>
-                    </div>
-                </div>
-                
-                <!-- Raw CSS Tab Content -->
-                <div id="css-content" class="tab-content">
-                    <div class="raw-content-header">
-                        <div class="content-info">
-                            <span class="content-label">Raw CSS Content</span>
-                            <span class="content-size" id="css-size">Loading...</span>
+                    <div class="screenshot-data-container">
+                        <div class="data-section">
+                            <h4>📊 Screenshot Metadata</h4>
+                            <div id="screenshot-metadata" class="data-content">Loading screenshot data...</div>
                         </div>
-                        <div class="content-actions">
-                            <button id="copy-css-btn" class="btn btn-sm">📋 Copy</button>
-                            <button id="download-css-btn" class="btn btn-sm">💾 Download</button>
+                        
+                        <div class="data-section">
+                            <h4>🔍 Binary Data Analysis</h4>
+                            <div id="screenshot-binary-info" class="data-content">Loading binary analysis...</div>
                         </div>
-                    </div>
-                    <div class="raw-content-container">
-                        <pre id="css-content-display" class="raw-content"><code>Loading raw CSS...</code></pre>
+                        
+                        <div class="data-section">
+                            <h4>📈 Processing Status</h4>
+                            <div id="screenshot-processing-status" class="data-content">Loading processing status...</div>
+                        </div>
+                        
+                        <div class="data-section">
+                            <h4>🔗 Raw Data Preview</h4>
+                            <div id="screenshot-raw-preview" class="data-content">Loading raw data preview...</div>
+                        </div>
                     </div>
                 </div>
             </div>

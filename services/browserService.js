@@ -126,10 +126,8 @@ class BrowserService {
         const viewportWidth = snapshot.viewport_width || 1920;
         const viewportHeight = snapshot.viewport_height || 1080;
         
-        // Disable JavaScript to prevent any script execution but allow all network requests
+        // Disable JavaScript completely for security - no JS execution allowed
         await page.setJavaScriptEnabled(false);
-        
-        // Only JavaScript disabled for security
 
         await page.setViewport({
           width: viewportWidth,
@@ -140,42 +138,115 @@ class BrowserService {
         // Create the complete HTML with CSS styles
         const fullHtml = this.buildCompleteHtml(decompressedSnapshot, snapshot);
         
-        console.log(`🌐 Loading snapshot directly into browser (${fullHtml.length} chars)`);
-        
         // Load the HTML content directly into the page
         await page.setContent(fullHtml, {
           waitUntil: 'networkidle0', // Wait for network requests to finish
-          timeout: 30000
+          timeout: 60000 // Increased timeout for external resources
+        });
+
+
+        // Wait for external resources to load and content to settle
+        await new Promise(r => setTimeout(r, 3000));
+        
+        // Debug: Check what's actually visible on the page
+        const renderingDebug = await page.evaluate(() => {
+          const body = document.body;
+          const allElements = document.querySelectorAll('*');
+          let visibleCount = 0;
+          let hasColor = 0;
+          let hasBackground = 0;
+          
+          for (let el of allElements) {
+            const styles = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            
+            if (rect.width > 0 && rect.height > 0) {
+              visibleCount++;
+              if (styles.color !== 'rgb(0, 0, 0)' && styles.color !== 'rgb(255, 255, 255)') {
+                hasColor++;
+              }
+              if (styles.backgroundColor !== 'rgba(0, 0, 0, 0)' && styles.backgroundColor !== 'rgb(255, 255, 255)') {
+                hasBackground++;
+              }
+            }
+          }
+          
+          return {
+            totalElements: allElements.length,
+            visibleElements: visibleCount,
+            elementsWithColor: hasColor,
+            elementsWithBackground: hasBackground,
+            bodyBounds: body ? body.getBoundingClientRect() : null,
+            firstVisibleElement: document.querySelector('header, main, .container, .content') ? 
+              window.getComputedStyle(document.querySelector('header, main, .container, .content')) : null
+          };
         });
         
-        console.log('✅ Page content loaded successfully');
-
-        // Wait a moment for any dynamic content to settle (Puppeteer v22+ compatible)
-        await new Promise(r => setTimeout(r, 1000));
+        console.log('🔍 Rendering debug info:', renderingDebug);
         
-        // Take screenshot - always WebP format, uncompressed quality
+        // Debug CSS application - check if styles are actually being loaded
+        const cssDebug = await page.evaluate(() => {
+          const allStylesheets = document.querySelectorAll('style, link[rel="stylesheet"]');
+          const styleInfo = [];
+          
+          for (let sheet of allStylesheets) {
+            if (sheet.tagName === 'STYLE') {
+              styleInfo.push({
+                type: 'inline-style',
+                length: sheet.textContent?.length || 0,
+                hasContent: !!sheet.textContent?.trim(),
+                preview: sheet.textContent?.substring(0, 100) || ''
+              });
+            } else if (sheet.tagName === 'LINK') {
+              try {
+                const cssRules = sheet.sheet?.cssRules?.length || 0;
+                styleInfo.push({
+                  type: 'external-link',
+                  href: sheet.href,
+                  loaded: cssRules > 0,
+                  rulesCount: cssRules
+                });
+              } catch (e) {
+                styleInfo.push({
+                  type: 'external-link',
+                  href: sheet.href,
+                  loaded: false,
+                  error: e.message
+                });
+              }
+            }
+          }
+          
+          return {
+            totalStyleElements: allStylesheets.length,
+            styleDetails: styleInfo,
+            documentReady: document.readyState
+          };
+        });
+        
+        console.log('🔍 CSS Debug Info:', cssDebug);
+        
+        // Take PNG screenshot (PNG format works, WebP produces blank images)
         const screenshotBuffer = await page.screenshot({
-          fullPage: options.fullPage || false,
-          type: 'webp',
-          quality: 100,  // Maximum quality, uncompressed
-          omitBackground: false  // Include background (white by default)
+          fullPage: true,
+          type: 'png',
+          omitBackground: false
         });
         
         console.log('📸 Screenshot captured:', {
           size: screenshotBuffer.length,
-          format: 'webp',
+          format: 'png',
           viewport: `${viewportWidth}x${viewportHeight}`
         });
 
         // Save screenshot to database
         await this.saveScreenshot(snapshotId, screenshotBuffer, {
-          format: 'webp',
+          format: 'png',
           width: viewportWidth,
           height: viewportHeight,
-          fullPage: options.fullPage || false,
+          fullPage: true,
           quality: 100,
-          method: 'direct_html_load',
-          uncompressed: true
+          method: 'direct_html_load'
         });
 
         console.log(`✅ Screenshot saved for snapshot ${snapshotId} (${screenshotBuffer.length} bytes)`);
@@ -183,11 +254,10 @@ class BrowserService {
         return {
           snapshotId,
           screenshotSize: screenshotBuffer.length,
-          format: 'webp',
+          format: 'png',
           viewport: { width: viewportWidth, height: viewportHeight },
           timestamp: new Date().toISOString(),
-          method: 'direct_html_load',
-          uncompressed: true
+          method: 'direct_html_load'
         };
 
       } finally {
@@ -203,11 +273,9 @@ class BrowserService {
   }
 
   buildCompleteHtml(decompressedSnapshot, originalSnapshot) {
-    console.log(`🔍 Building HTML for screenshot ${originalSnapshot.id} (${decompressedSnapshot.html?.length || 0} HTML chars, ${decompressedSnapshot.css?.length || 0} CSS chars)`);
 
     // Check if we have valid HTML content
     if (!decompressedSnapshot.html || decompressedSnapshot.html.trim().length === 0) {
-      console.error('❌ No HTML content available for screenshot generation');
       throw new Error('No HTML content available for screenshot generation');
     }
 
@@ -222,7 +290,7 @@ class BrowserService {
         existingHead = headMatch[1];
       }
       
-      // Extract body content  
+      // Extract body content
       const bodyMatch = decompressedSnapshot.html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
       if (bodyMatch) {
         bodyContent = `<body${decompressedSnapshot.html.match(/<body[^>]*>/i)?.[0].slice(5) || '>'}${bodyMatch[1]}</body>`;
@@ -230,8 +298,6 @@ class BrowserService {
         // If no body tag, use the whole HTML as body content
         bodyContent = decompressedSnapshot.html;
       }
-      
-      console.log(`✅ HTML parsed successfully (head: ${existingHead.length} chars, body: ${bodyContent.length} chars)`);
     } catch (e) {
       console.warn('⚠️ HTML extraction failed, using original content:', e.message);
       existingHead = '';
@@ -239,7 +305,7 @@ class BrowserService {
     }
 
     // Build the complete HTML with all styles and content
-    return `<!DOCTYPE html>
+    const finalHtml = `<!DOCTYPE html>
 <html lang="en" data-screenshot-capture="${originalSnapshot.id}" data-capture-time="${originalSnapshot.created_at}">
 <head>
     <meta charset="UTF-8">
@@ -250,10 +316,8 @@ class BrowserService {
     <meta name="capture-url" content="${originalSnapshot.url || 'unknown'}">
     <meta name="viewport-size" content="${originalSnapshot.viewport_width || 1920}x${originalSnapshot.viewport_height || 1080}">
     
-    <!-- FullStory-style security headers to block API requests but allow CSS/images -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' data: blob: https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'none'; script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none';">
+    <!-- Minimal security headers for screenshot generation - scripts already disabled at browser level -->
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
     <meta http-equiv="Referrer-Policy" content="no-referrer">
     
     <!-- Original head content preserved -->
@@ -307,6 +371,31 @@ html, body {
 ${bodyContent || '<body><h1>No content available</h1><p>The snapshot HTML content could not be rendered.</p></body>'}
 
 </html>`;
+    
+    return finalHtml;
+  }
+
+  buildAlternativeHtml(decompressedSnapshot, originalSnapshot) {
+    // Alternative approach: Keep the original HTML structure but inject CSS more directly
+    let html = decompressedSnapshot.html;
+    
+    // If there's CSS, try to inject it at the very beginning of the head
+    if (decompressedSnapshot.css) {
+      const cssInline = `<style type="text/css">\n${decompressedSnapshot.css}\n</style>`;
+      
+      // Try to inject right after the opening head tag
+      if (html.includes('<head>')) {
+        html = html.replace('<head>', `<head>\n${cssInline}`);
+      } else if (html.includes('<head ')) {
+        html = html.replace(/<head[^>]*>/, match => `${match}\n${cssInline}`);
+      } else {
+        // If no head tag, add CSS at the very beginning
+        html = `<!DOCTYPE html><html><head>${cssInline}</head><body>${html}</body></html>`;
+      }
+    }
+    
+    console.log(`🔧 Alternative HTML built: ${html.length} chars, CSS injected: ${!!decompressedSnapshot.css}`);
+    return html;
   }
 
   async saveScreenshot(snapshotId, screenshotBuffer, metadata) {

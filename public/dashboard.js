@@ -33,8 +33,10 @@ class SnapshotDashboard {
         // Tab controls
         document.getElementById('screenshot-tab').addEventListener('click', () => this.showScreenshotTab());
         document.getElementById('dom-tab').addEventListener('click', () => this.showDomTab());
-        document.getElementById('html-tab').addEventListener('click', () => this.showHtmlTab());
-        document.getElementById('css-tab').addEventListener('click', () => this.showCssTab());
+        document.getElementById('screenshot-data-tab').addEventListener('click', () => this.showScreenshotDataTab());
+        
+        // Replay screenshot button (will be bound when snapshot is loaded)
+        this.replayButtonHandler = null;
     }
 
     async loadSnapshots() {
@@ -191,8 +193,11 @@ class SnapshotDashboard {
             </div>
         `;
         
-        // Load DOM tab by default (instead of screenshot)
-        this.loadDomPreview();
+        // Load screenshot tab by default
+        this.loadScreenshot();
+        
+        // Bind replay screenshot button
+        this.bindReplayScreenshotButton();
     }
 
 
@@ -206,19 +211,14 @@ class SnapshotDashboard {
         this.loadDomPreview();
     }
 
-    showHtmlTab() {
-        this.setActiveTab('html');
-        this.loadRawHtml();
-    }
-
-    showCssTab() {
-        this.setActiveTab('css');
-        this.loadRawCss();
+    showScreenshotDataTab() {
+        this.setActiveTab('screenshot-data');
+        this.loadScreenshotData();
     }
 
     setActiveTab(activeTabName) {
         // Update tab buttons
-        const tabs = ['screenshot', 'dom', 'html', 'css'];
+        const tabs = ['screenshot', 'dom', 'screenshot-data'];
         tabs.forEach(tab => {
             const tabBtn = document.getElementById(`${tab}-tab`);
             const tabContent = document.getElementById(`${tab}-content`);
@@ -533,157 +533,223 @@ class SnapshotDashboard {
         }
     }
 
-    async loadRawHtml() {
+    async loadScreenshotData() {
         if (!this.currentSnapshot?.id) return;
 
         try {
+            // Load snapshot data with screenshot info
             const response = await fetch(`/snapshots/${this.currentSnapshot.id}`);
             const data = await response.json();
             
             if (data.success && data.snapshot) {
-                const htmlContent = data.snapshot.html || '';
-                const htmlSize = this.formatFileSize(htmlContent.length);
+                const snapshot = data.snapshot;
                 
-                document.getElementById('html-size').textContent = htmlSize;
-                document.getElementById('html-content-display').innerHTML = `<code>${this.escapeHtml(htmlContent)}</code>`;
+                // Update Screenshot Metadata
+                this.displayScreenshotMetadata(snapshot);
                 
-                // Add copy and download functionality
-                this.setupHtmlActions(htmlContent);
+                // Load and analyze screenshot binary data
+                await this.loadScreenshotBinaryData(this.currentSnapshot.id);
+                
+                // Display processing status
+                this.displayProcessingStatus(snapshot);
+                
+                // Set up refresh button
+                document.getElementById('refresh-screenshot-data-btn').onclick = () => this.loadScreenshotData();
                 
             } else {
-                document.getElementById('html-content-display').innerHTML = `<div class="empty-state">No HTML content available</div>`;
-                document.getElementById('html-size').textContent = '0 bytes';
+                this.displayError('Failed to load snapshot data');
             }
             
         } catch (error) {
-            console.error('Error loading raw HTML:', error);
-            document.getElementById('html-content-display').innerHTML = `<div class="error">Error loading HTML content</div>`;
+            console.error('Error loading screenshot data:', error);
+            this.displayError('Error loading screenshot data');
         }
     }
-
-    async loadRawCss() {
-        if (!this.currentSnapshot?.id) return;
-
+    
+    displayScreenshotMetadata(snapshot) {
+        const metadata = {
+            'Screenshot Size (bytes)': snapshot.screenshot_size || 'NULL',
+            'Screenshot Format': snapshot.screenshot_format || 'NULL', 
+            'Screenshot Width': snapshot.screenshot_width || 'NULL',
+            'Screenshot Height': snapshot.screenshot_height || 'NULL',
+            'Screenshot Taken At': snapshot.screenshot_taken_at || 'NULL',
+            'Screenshot Metadata': snapshot.screenshot_metadata || 'NULL',
+            'Processing Status': snapshot.processing_status || 'NULL',
+            'Queue Job ID': snapshot.queue_job_id || 'NULL'
+        };
+        
+        let html = '';
+        for (const [key, value] of Object.entries(metadata)) {
+            const valueClass = value === 'NULL' ? 'data-null' : (typeof value === 'number' ? 'data-number' : 'data-value');
+            html += `<span class="data-key">${key}:</span> <span class="${valueClass}">${value}</span>\n`;
+        }
+        
+        document.getElementById('screenshot-metadata').innerHTML = html;
+    }
+    
+    async loadScreenshotBinaryData(snapshotId) {
         try {
-            const response = await fetch(`/snapshots/${this.currentSnapshot.id}`);
-            const data = await response.json();
+            const response = await fetch(`/snapshots/${snapshotId}/screenshot`);
             
-            if (data.success && data.snapshot) {
-                const cssContent = data.snapshot.css || '';
-                const cssSize = this.formatFileSize(cssContent.length);
+            if (response.ok) {
+                const blob = await response.blob();
+                const arrayBuffer = await blob.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
                 
-                document.getElementById('css-size').textContent = cssSize;
+                // Display binary analysis
+                const analysis = {
+                    'Binary Size': `${arrayBuffer.byteLength} bytes`,
+                    'First 4 bytes (hex)': this.bytesToHex(uint8Array.slice(0, 4)),
+                    'File signature': this.detectFileType(uint8Array),
+                    'Content-Type': response.headers.get('content-type') || 'Unknown'
+                };
                 
-                if (cssContent) {
-                    document.getElementById('css-content-display').innerHTML = `<code>${this.escapeHtml(cssContent)}</code>`;
-                } else {
-                    document.getElementById('css-content-display').innerHTML = `<div class="empty-state">No CSS content captured</div>`;
+                let html = '';
+                for (const [key, value] of Object.entries(analysis)) {
+                    html += `<span class="data-key">${key}:</span> <span class="data-value">${value}</span>\n`;
                 }
                 
-                // Add copy and download functionality  
-                this.setupCssActions(cssContent);
+                // Add byte preview
+                html += '\n\n<span class="data-key">First 64 bytes (hex):</span>\n';
+                html += `<div class="byte-preview">${this.bytesToHex(uint8Array.slice(0, 64))}</div>`;
+                
+                document.getElementById('screenshot-binary-info').innerHTML = html;
+                
+                // Display raw data preview
+                const preview = `URL: /snapshots/${snapshotId}/screenshot
+Content-Type: ${response.headers.get('content-type')}
+Content-Length: ${response.headers.get('content-length')}
+Status: ${response.status} ${response.statusText}
+
+Binary data available: YES
+Size: ${arrayBuffer.byteLength} bytes
+First 32 bytes: ${this.bytesToHex(uint8Array.slice(0, 32))}`;
+                
+                document.getElementById('screenshot-raw-preview').innerHTML = preview;
                 
             } else {
-                document.getElementById('css-content-display').innerHTML = `<div class="empty-state">No CSS content available</div>`;
-                document.getElementById('css-size').textContent = '0 bytes';
+                document.getElementById('screenshot-binary-info').innerHTML = `<span class="status-error">No screenshot data available</span>\nHTTP Status: ${response.status} ${response.statusText}`;
+                document.getElementById('screenshot-raw-preview').innerHTML = `<span class="status-error">Screenshot endpoint returned: ${response.status} ${response.statusText}</span>`;
             }
             
         } catch (error) {
-            console.error('Error loading raw CSS:', error);
-            document.getElementById('css-content-display').innerHTML = `<div class="error">Error loading CSS content</div>`;
+            document.getElementById('screenshot-binary-info').innerHTML = `<span class="status-error">Error loading binary data: ${error.message}</span>`;
+            document.getElementById('screenshot-raw-preview').innerHTML = `<span class="status-error">Failed to fetch screenshot data</span>`;
         }
     }
-
-    setupHtmlActions(htmlContent) {
-        const copyBtn = document.getElementById('copy-html-btn');
-        const downloadBtn = document.getElementById('download-html-btn');
-
-        copyBtn.onclick = () => this.copyToClipboard(htmlContent, 'HTML');
-        downloadBtn.onclick = () => this.downloadContent(htmlContent, `snapshot-${this.currentSnapshot.id}.html`, 'text/html');
+    
+    displayProcessingStatus(snapshot) {
+        const status = snapshot.processing_status || 'unknown';
+        const statusClass = {
+            'completed': 'status-success',
+            'processing': 'status-info',
+            'queued': 'status-warning',
+            'pending': 'status-warning',
+            'failed': 'status-error'
+        }[status] || 'status-warning';
+        
+        let html = `<span class="data-key">Processing Status:</span> <span class="${statusClass}">${status.toUpperCase()}</span>\n`;
+        html += `<span class="data-key">Created At:</span> <span class="data-value">${snapshot.created_at}</span>\n`;
+        html += `<span class="data-key">Updated At:</span> <span class="data-value">${snapshot.updated_at || 'NULL'}</span>\n`;
+        html += `<span class="data-key">Processed At:</span> <span class="data-value">${snapshot.processed_at || 'NULL'}</span>\n`;
+        
+        document.getElementById('screenshot-processing-status').innerHTML = html;
     }
-
-    setupCssActions(cssContent) {
-        const copyBtn = document.getElementById('copy-css-btn');
-        const downloadBtn = document.getElementById('download-css-btn');
-
-        copyBtn.onclick = () => this.copyToClipboard(cssContent, 'CSS');
-        downloadBtn.onclick = () => this.downloadContent(cssContent, `snapshot-${this.currentSnapshot.id}.css`, 'text/css');
+    
+    displayError(message) {
+        document.getElementById('screenshot-metadata').innerHTML = `<span class="status-error">${message}</span>`;
+        document.getElementById('screenshot-binary-info').innerHTML = `<span class="status-error">${message}</span>`;
+        document.getElementById('screenshot-processing-status').innerHTML = `<span class="status-error">${message}</span>`;
+        document.getElementById('screenshot-raw-preview').innerHTML = `<span class="status-error">${message}</span>`;
     }
-
-    async copyToClipboard(content, type) {
+    
+    bytesToHex(bytes) {
+        return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join(' ');
+    }
+    
+    detectFileType(bytes) {
+        if (bytes.length < 4) return 'Unknown';
+        
+        // WebP signature
+        if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+            return 'WebP (RIFF container)';
+        }
+        
+        // PNG signature
+        if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+            return 'PNG';
+        }
+        
+        // JPEG signature
+        if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+            return 'JPEG';
+        }
+        
+        return `Unknown (${this.bytesToHex(bytes.slice(0, 4))})`;
+    }
+    
+    bindReplayScreenshotButton() {
+        const replayBtn = document.getElementById('replay-screenshot-btn');
+        if (replayBtn && this.currentSnapshot) {
+            // Remove previous handler if exists
+            if (this.replayButtonHandler) {
+                replayBtn.removeEventListener('click', this.replayButtonHandler);
+            }
+            
+            // Create new handler
+            this.replayButtonHandler = () => this.replayScreenshot();
+            replayBtn.addEventListener('click', this.replayButtonHandler);
+        }
+    }
+    
+    async replayScreenshot() {
+        if (!this.currentSnapshot?.id) {
+            console.error('No current snapshot to replay');
+            return;
+        }
+        
+        const replayBtn = document.getElementById('replay-screenshot-btn');
+        const originalText = replayBtn.textContent;
+        
         try {
-            await navigator.clipboard.writeText(content);
-            this.showToast(`${type} content copied to clipboard! 📋`);
+            replayBtn.disabled = true;
+            replayBtn.textContent = '⏳ Replaying...';
+            
+            console.log(`🔄 Replaying screenshot for snapshot: ${this.currentSnapshot.id}`);
+            
+            const response = await fetch(`/snapshots/${this.currentSnapshot.id}/replay-screenshot`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('Screenshot replay initiated successfully:', data);
+                replayBtn.textContent = '✅ Replayed!';
+                
+                // Refresh the screenshot after a delay
+                setTimeout(() => {
+                    this.loadScreenshot();
+                    replayBtn.textContent = originalText;
+                    replayBtn.disabled = false;
+                }, 2000);
+            } else {
+                throw new Error(data.message || 'Failed to replay screenshot');
+            }
+            
         } catch (error) {
-            console.error('Failed to copy to clipboard:', error);
-            this.showToast(`Failed to copy ${type} content ❌`, 'error');
-        }
-    }
-
-    downloadContent(content, filename, mimeType) {
-        const blob = new Blob([content], { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        
-        this.showToast(`${filename} downloaded! 💾`);
-    }
-
-    formatFileSize(bytes) {
-        if (bytes === 0) return '0 bytes';
-        const k = 1024;
-        const sizes = ['bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    showToast(message, type = 'success') {
-        // Create toast element
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.textContent = message;
-        toast.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: ${type === 'success' ? '#28a745' : '#dc3545'};
-            color: white;
-            padding: 12px 24px;
-            border-radius: 6px;
-            font-weight: 500;
-            z-index: 10000;
-            opacity: 0;
-            transform: translateY(-20px);
-            transition: all 0.3s ease;
-        `;
-        
-        document.body.appendChild(toast);
-        
-        // Animate in
-        setTimeout(() => {
-            toast.style.opacity = '1';
-            toast.style.transform = 'translateY(0)';
-        }, 10);
-        
-        // Remove after 3 seconds
-        setTimeout(() => {
-            toast.style.opacity = '0';
-            toast.style.transform = 'translateY(-20px)';
+            console.error('Error replaying screenshot:', error);
+            replayBtn.textContent = '❌ Failed';
             setTimeout(() => {
-                document.body.removeChild(toast);
-            }, 300);
-        }, 3000);
+                replayBtn.textContent = originalText;
+                replayBtn.disabled = false;
+            }, 2000);
+            
+            alert(`❌ Failed to replay screenshot: ${error.message}`);
+        }
     }
 }
 

@@ -137,7 +137,7 @@ router.get('/snapshots/:id', async (req, res) => {
       logger.info('🗜️ Decompressing snapshot for API response:', snapshot.id);
       responseSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
     } else {
-      logger.info('🧪 DEBUG MODE: Returning raw uncompressed snapshot data:', snapshot.id);
+      logger.info('Returning snapshot data:', snapshot.id);
     }
 
     res.json({
@@ -194,7 +194,7 @@ router.get('/snapshots/:id/screenshot', async (req, res) => {
     }
 
     // Set appropriate headers for image response
-    res.setHeader('Content-Type', `image/${screenshot.screenshot_format || 'webp'}`);
+    res.setHeader('Content-Type', `image/${screenshot.screenshot_format || 'png'}`);
     res.setHeader('Content-Length', screenshot.screenshot_size);
     res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year cache
     res.setHeader('X-Screenshot-Width', screenshot.screenshot_width);
@@ -208,6 +208,65 @@ router.get('/snapshots/:id/screenshot', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve screenshot'
+    });
+  }
+});
+
+// POST /snapshots/:id/replay-screenshot - Replay screenshot generation by re-queuing job
+router.post('/snapshots/:id/replay-screenshot', async (req, res) => {
+  try {
+    const snapshotId = req.params.id;
+    
+    logger.info(`🔄 Screenshot replay request for snapshot ${snapshotId}`);
+    
+    // Verify snapshot exists
+    const snapshot = await db.getSnapshot(snapshotId);
+    if (!snapshot) {
+      return res.status(404).json({
+        success: false,
+        error: 'Snapshot not found'
+      });
+    }
+    
+    // Re-queue the screenshot job
+    const queueJob = await snapshotQueue.addSnapshotJob({
+      snapshotId,
+      metadata: {
+        url: snapshot.url,
+        viewport: { 
+          width: snapshot.viewport_width || 1920, 
+          height: snapshot.viewport_height || 1080 
+        },
+        replay: true,
+        originalJobId: snapshot.queue_job_id
+      }
+    });
+    
+    // Update snapshot with new job ID
+    await db.updateSnapshotJobId(snapshotId, queueJob.jobId);
+    
+    logger.info(`✅ Screenshot replay job queued:`, {
+      snapshotId,
+      newJobId: queueJob.jobId,
+      queuePosition: queueJob.queuePosition
+    });
+    
+    res.json({
+      success: true,
+      message: 'Screenshot replay job queued successfully',
+      snapshotId,
+      jobId: queueJob.jobId,
+      queuePosition: queueJob.queuePosition,
+      isReplay: true,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    logger.error(`❌ Error replaying screenshot for ${req.params.id}:`, error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to replay screenshot job',
+      message: error.message
     });
   }
 });
