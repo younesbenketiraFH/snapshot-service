@@ -239,9 +239,15 @@ router.get('/render/:id', async (req, res) => {
       return res.status(410).send('DOM data not available');
     }
 
-    // Serve the raw HTML content without any modifications
+    // Serve the raw HTML content with FullStory-style security headers
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
+    // FullStory-style CSP: Block all scripts and API requests, allow styles/images
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'none'; script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none';");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    
     res.send(decompressedSnapshot.html);
     
   } catch (error) {
