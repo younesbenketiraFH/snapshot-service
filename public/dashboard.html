@@ -58,6 +58,8 @@
                 <div class="tab-navigation">
                     <button id="screenshot-tab" class="tab-btn">📸 Screenshot</button>
                     <button id="dom-tab" class="tab-btn active">🌐 DOM View</button>
+                    <button id="html-tab" class="tab-btn">📄 Raw HTML</button>
+                    <button id="css-tab" class="tab-btn">🎨 Raw CSS</button>
                 </div>
                 
                 <!-- Screenshot Tab Content -->
@@ -75,6 +77,40 @@
                     </div>
                     <iframe id="dom-frame" style="width: 100%; height: 80vh; border: 1px solid #ddd; display: none;" 
                             title="DOM Preview"></iframe>
+                </div>
+                
+                <!-- Raw HTML Tab Content -->
+                <div id="html-content" class="tab-content">
+                    <div class="raw-content-header">
+                        <div class="content-info">
+                            <span class="content-label">Raw HTML Content</span>
+                            <span class="content-size" id="html-size">Loading...</span>
+                        </div>
+                        <div class="content-actions">
+                            <button id="copy-html-btn" class="btn btn-sm">📋 Copy</button>
+                            <button id="download-html-btn" class="btn btn-sm">💾 Download</button>
+                        </div>
+                    </div>
+                    <div class="raw-content-container">
+                        <pre id="html-content-display" class="raw-content"><code>Loading raw HTML...</code></pre>
+                    </div>
+                </div>
+                
+                <!-- Raw CSS Tab Content -->
+                <div id="css-content" class="tab-content">
+                    <div class="raw-content-header">
+                        <div class="content-info">
+                            <span class="content-label">Raw CSS Content</span>
+                            <span class="content-size" id="css-size">Loading...</span>
+                        </div>
+                        <div class="content-actions">
+                            <button id="copy-css-btn" class="btn btn-sm">📋 Copy</button>
+                            <button id="download-css-btn" class="btn btn-sm">💾 Download</button>
+                        </div>
+                    </div>
+                    <div class="raw-content-container">
+                        <pre id="css-content-display" class="raw-content"><code>Loading raw CSS...</code></pre>
+                    </div>
                 </div>
             </div>
 

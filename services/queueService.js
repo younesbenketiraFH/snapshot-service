@@ -169,24 +169,23 @@ class SnapshotQueue {
 
             await job.updateProgress(40);
 
-            // Use raw data or decompress the snapshot data
-            let decompressedSnapshot;
-            if (compressedSnapshot.html_compressed || compressedSnapshot.css_compressed) {
-                console.log('📤 Decompressing snapshot:', snapshotId);
-                decompressedSnapshot = await CompressionUtils.decompressSnapshot(compressedSnapshot);
-            } else {
-                console.log('🧪 DEBUG MODE: Using raw uncompressed snapshot data:', snapshotId);
-                decompressedSnapshot = compressedSnapshot;
-            }
+            // Use raw snapshot data
+            let decompressedSnapshot = compressedSnapshot;
 
             await job.updateProgress(70);
 
-            // DEBUGGING: Skip all browser screenshot processing to focus on DOM only
-            console.log('🧪 DEBUG: Skipping screenshot generation to isolate DOM issues');
+            // Generate screenshot
             let screenshotGenerated = false;
+            try {
+                const screenshotResult = await this.browserService.takeSnapshotScreenshot(snapshotId);
+                screenshotGenerated = true;
+                console.log('✅ Screenshot generated:', screenshotResult.snapshotId);
+            } catch (screenshotError) {
+                console.error('❌ Screenshot generation failed:', screenshotError.message);
+                screenshotGenerated = false;
+            }
             
-            // DOM cleanup skipped for debugging
-            console.log('🧹 DOM cleanup SKIPPED - DOM data preserved for debugging');
+            // DOM data preserved in database for dashboard viewing
 
             await job.updateProgress(90);
 

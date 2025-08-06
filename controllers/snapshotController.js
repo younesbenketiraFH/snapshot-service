@@ -32,29 +32,22 @@ router.post('/snapshot', async (req, res) => {
     options: options || {}
   });
 
-  // DEBUGGING: Log the actual HTML and CSS content being captured
-  console.log('🧪 DEBUG: First 1000 chars of HTML:', html.substring(0, 1000));
-  console.log('🧪 DEBUG: First 500 chars of CSS:', css ? css.substring(0, 500) : 'No CSS provided');
-  
   try {
-    // DEBUGGING: Skip compression and save raw HTML/CSS to isolate compression issues
-    logger.info('🧪 DEBUGGING MODE: Saving raw uncompressed HTML/CSS to test rendering');
-    
-    // Prepare data for database (raw uncompressed content)
+    // Prepare data for database (raw content only)
     const snapshotData = {
       id: snapshotId,
-      html: html, // Store raw HTML for debugging
-      css: css,   // Store raw CSS for debugging
+      html: html,
+      css: css,
       url: options?.url,
       viewport: options?.viewport,
       options: options,
-      htmlCompressed: null, // Skip compression for debugging
-      cssCompressed: null,  // Skip compression for debugging
+      htmlCompressed: null,
+      cssCompressed: null,
       compressionType: 'none',
       originalHtmlSize: html.length,
       originalCssSize: css ? css.length : 0,
-      compressedHtmlSize: 0, // No compression
-      compressedCssSize: 0,  // No compression
+      compressedHtmlSize: 0,
+      compressedCssSize: 0,
       processingStatus: 'queued'
     };
 
@@ -68,7 +61,6 @@ router.post('/snapshot', async (req, res) => {
         url: options?.url,
         viewport: options?.viewport,
         compressionType: 'none',
-        rawDebugMode: true,
         htmlSize: html.length,
         cssSize: css ? css.length : 0
       }
@@ -77,7 +69,7 @@ router.post('/snapshot', async (req, res) => {
     // Update snapshot with job ID
     await db.updateSnapshotJobId(snapshotId, queueJob.jobId);
 
-    logger.info('✅ Snapshot saved raw (uncompressed) and queued:', {
+    logger.info('✅ Snapshot saved and queued:', {
       id: snapshotId,
       jobId: queueJob.jobId,
       htmlSize: html.length,
@@ -86,15 +78,14 @@ router.post('/snapshot', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Snapshot saved raw (uncompressed) and queued for processing',
+      message: 'Snapshot saved and queued for processing',
       id: snapshotId,
       jobId: queueJob.jobId,
       queuePosition: queueJob.queuePosition,
-      compressionStats: {
-        totalOriginalSize: html.length + (css ? css.length : 0),
-        totalCompressedSize: html.length + (css ? css.length : 0),
-        overallCompressionRatio: 0.0, // No compression for debugging
-        compressionTimeMs: 0
+      size: {
+        htmlSize: html.length,
+        cssSize: css ? css.length : 0,
+        totalSize: html.length + (css ? css.length : 0)
       },
       timestamp: new Date().toISOString()
     });
@@ -240,52 +231,18 @@ router.get('/render/:id', async (req, res) => {
       `);
     }
 
-    // Use raw snapshot data directly (no decompression needed in debug mode)
+    // Use raw snapshot data directly
     let decompressedSnapshot = snapshot;
-    if (snapshot.html_compressed || snapshot.css_compressed) {
-      logger.info('🗜️ Decompressing snapshot for DOM viewing:', snapshot.id);
-      decompressedSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
-    } else {
-      logger.info('🧪 DEBUG MODE: Using raw uncompressed HTML/CSS for DOM viewing:', snapshot.id);
-    }
 
     // Check if DOM data exists
     if (!decompressedSnapshot.html) {
       return res.status(410).send('DOM data not available');
     }
 
-    // DEBUGGING: Serve the absolute RAW HTML with minimal modification
-    logger.info('🧪 DEBUG: Serving completely raw HTML for DOM debugging');
-    
-    // Debug what we're actually serving
-    console.log('🧪 DEBUG: HTML length from DB:', decompressedSnapshot.html?.length || 0);
-    console.log('🧪 DEBUG: CSS length from DB:', decompressedSnapshot.css?.length || 0);
-    console.log('🧪 DEBUG: First 500 chars of HTML from DB:', decompressedSnapshot.html?.substring(0, 500) || 'NO HTML');
-    console.log('🧪 DEBUG: First 300 chars of CSS from DB:', decompressedSnapshot.css?.substring(0, 300) || 'NO CSS');
-    
-    // Just add the CSS inline to the original HTML - no other modifications
-    let rawHtml = decompressedSnapshot.html;
-    
-    // If there's CSS, try to inject it into the head
-    if (decompressedSnapshot.css) {
-      const cssStyleTag = `<style type="text/css">\n${decompressedSnapshot.css}\n</style>`;
-      
-      // Try to inject CSS into existing head
-      if (rawHtml.includes('</head>')) {
-        rawHtml = rawHtml.replace('</head>', `${cssStyleTag}\n</head>`);
-      } else if (rawHtml.includes('<head>')) {
-        rawHtml = rawHtml.replace('<head>', `<head>\n${cssStyleTag}`);
-      } else {
-        // No head tag, add CSS at the beginning
-        rawHtml = `<style>${decompressedSnapshot.css}</style>\n${rawHtml}`;
-      }
-    }
-
-    const domViewHtml = rawHtml;
-
+    // Serve the raw HTML content without any modifications
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.send(domViewHtml);
+    res.send(decompressedSnapshot.html);
     
   } catch (error) {
     logger.error('Error rendering snapshot:', error);
@@ -303,97 +260,6 @@ router.get('/render/:id', async (req, res) => {
   }
 });
 
-// GET /debug/:id/raw - Debug endpoint to show raw HTML as text
-router.get('/debug/:id/raw', async (req, res) => {
-  try {
-    const snapshot = await db.getSnapshot(req.params.id);
-    
-    if (!snapshot) {
-      return res.status(404).send('Snapshot not found');
-    }
-
-    let decompressedSnapshot = snapshot;
-    if (snapshot.html_compressed || snapshot.css_compressed) {
-      decompressedSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
-    }
-
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(`=== RAW HTML DEBUG ===\n\nHTML LENGTH: ${decompressedSnapshot.html?.length || 0}\nCSS LENGTH: ${decompressedSnapshot.css?.length || 0}\n\n=== FIRST 2000 CHARS OF HTML ===\n${decompressedSnapshot.html?.substring(0, 2000) || 'NO HTML'}\n\n=== FIRST 1000 CHARS OF CSS ===\n${decompressedSnapshot.css?.substring(0, 1000) || 'NO CSS'}`);
-  } catch (error) {
-    res.status(500).send(`Error: ${error.message}`);
-  }
-});
-
-// GET /debug/:id/html - Debug endpoint to check HTML content
-router.get('/debug/:id/html', async (req, res) => {
-  try {
-    const snapshot = await db.getSnapshot(req.params.id);
-    
-    if (!snapshot) {
-      return res.status(404).json({
-        success: false,
-        error: 'Snapshot not found'
-      });
-    }
-
-    // Use raw data or decompress snapshot if compressed
-    let decompressedSnapshot = snapshot;
-    if (snapshot.html_compressed || snapshot.css_compressed) {
-      logger.info('🗜️ Decompressing snapshot for debug:', snapshot.id);
-      decompressedSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
-    } else {
-      logger.info('🧪 DEBUG MODE: Using raw uncompressed data for debug:', snapshot.id);
-    }
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('X-Debug', 'true');
-    
-    const debugHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <title>Debug - ${snapshot.id}</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: white; }
-    .debug-info { background: #f0f0f0; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
-    .content-preview { background: #e0e0e0; padding: 15px; margin: 10px 0; border-radius: 4px; }
-    pre { white-space: pre-wrap; overflow-wrap: break-word; }
-  </style>
-</head>
-<body>
-  <div class="debug-info">
-    <h1>🔍 Snapshot Debug Information</h1>
-    <p><strong>ID:</strong> ${snapshot.id}</p>
-    <p><strong>URL:</strong> ${snapshot.url || 'Not available'}</p>
-    <p><strong>Created:</strong> ${snapshot.created_at}</p>
-    <p><strong>Has HTML:</strong> ${!!decompressedSnapshot.html}</p>
-    <p><strong>Has CSS:</strong> ${!!decompressedSnapshot.css}</p>
-    <p><strong>HTML Length:</strong> ${decompressedSnapshot.html?.length || 0}</p>
-    <p><strong>CSS Length:</strong> ${decompressedSnapshot.css?.length || 0}</p>
-  </div>
-  
-  <div class="content-preview">
-    <h3>HTML Preview (first 2000 chars):</h3>
-    <pre>${decompressedSnapshot.html?.substring(0, 2000) || 'No HTML content'}</pre>
-  </div>
-  
-  <div class="content-preview">
-    <h3>CSS Preview (first 1000 chars):</h3>
-    <pre>${decompressedSnapshot.css?.substring(0, 1000) || 'No CSS content'}</pre>
-  </div>
-</body>
-</html>`;
-
-    res.send(debugHtml);
-    
-  } catch (error) {
-    logger.error('Error in debug endpoint:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to retrieve debug information',
-      message: error.message
-    });
-  }
-});
 
 // DELETE /snapshots - Delete all snapshots
 router.delete('/snapshots', async (req, res) => {

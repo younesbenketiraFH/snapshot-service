@@ -20,14 +20,10 @@ class SnapshotDashboard {
         document.getElementById('refresh-btn').addEventListener('click', () => this.loadSnapshots());
         
         const deleteBtn = document.getElementById('delete-all-btn');
-        console.log('Delete button found:', !!deleteBtn);
         if (deleteBtn) {
             deleteBtn.addEventListener('click', () => {
-                console.log('Delete button event triggered');
                 this.deleteAllSnapshots();
             });
-        } else {
-            console.error('Delete button not found in DOM');
         }
         
         // Filters
@@ -37,6 +33,8 @@ class SnapshotDashboard {
         // Tab controls
         document.getElementById('screenshot-tab').addEventListener('click', () => this.showScreenshotTab());
         document.getElementById('dom-tab').addEventListener('click', () => this.showDomTab());
+        document.getElementById('html-tab').addEventListener('click', () => this.showHtmlTab());
+        document.getElementById('css-tab').addEventListener('click', () => this.showCssTab());
     }
 
     async loadSnapshots() {
@@ -199,29 +197,40 @@ class SnapshotDashboard {
 
 
     showScreenshotTab() {
-        // Update tab buttons
-        document.getElementById('screenshot-tab').classList.add('active');
-        document.getElementById('dom-tab').classList.remove('active');
-        
-        // Update tab content
-        document.getElementById('screenshot-content').classList.add('active');
-        document.getElementById('dom-content').classList.remove('active');
-        
-        // Load screenshot if not already loaded
+        this.setActiveTab('screenshot');
         this.loadScreenshot();
     }
 
     showDomTab() {
-        // Update tab buttons
-        document.getElementById('dom-tab').classList.add('active');
-        document.getElementById('screenshot-tab').classList.remove('active');
-        
-        // Update tab content
-        document.getElementById('dom-content').classList.add('active');
-        document.getElementById('screenshot-content').classList.remove('active');
-        
-        // Load DOM preview
+        this.setActiveTab('dom');
         this.loadDomPreview();
+    }
+
+    showHtmlTab() {
+        this.setActiveTab('html');
+        this.loadRawHtml();
+    }
+
+    showCssTab() {
+        this.setActiveTab('css');
+        this.loadRawCss();
+    }
+
+    setActiveTab(activeTabName) {
+        // Update tab buttons
+        const tabs = ['screenshot', 'dom', 'html', 'css'];
+        tabs.forEach(tab => {
+            const tabBtn = document.getElementById(`${tab}-tab`);
+            const tabContent = document.getElementById(`${tab}-content`);
+            
+            if (tab === activeTabName) {
+                tabBtn.classList.add('active');
+                tabContent.classList.add('active');
+            } else {
+                tabBtn.classList.remove('active');
+                tabContent.classList.remove('active');
+            }
+        });
     }
 
 
@@ -369,27 +378,14 @@ class SnapshotDashboard {
             screenshotStatus.innerHTML = '<div class="loading">Loading screenshot...</div>';
             screenshotImage.style.display = 'none';
             
-            console.log('🔍 Loading screenshot for snapshot:', snapshot.id);
             const response = await fetch(`/snapshots/${snapshot.id}/screenshot`);
-            
-            console.log('📸 Screenshot response:', {
-                status: response.status,
-                contentType: response.headers.get('content-type'),
-                contentLength: response.headers.get('content-length')
-            });
             
             if (response.ok) {
                 // Screenshot exists
                 const blob = await response.blob();
-                console.log('📸 Screenshot blob:', {
-                    size: blob.size,
-                    type: blob.type
-                });
-                
                 const imageUrl = URL.createObjectURL(blob);
                 
                 screenshotImage.onload = () => {
-                    console.log('✅ Screenshot image loaded successfully');
                     screenshotStatus.style.display = 'none';
                 };
                 
@@ -535,6 +531,159 @@ class SnapshotDashboard {
                 </div>
             `;
         }
+    }
+
+    async loadRawHtml() {
+        if (!this.currentSnapshot?.id) return;
+
+        try {
+            const response = await fetch(`/snapshots/${this.currentSnapshot.id}`);
+            const data = await response.json();
+            
+            if (data.success && data.snapshot) {
+                const htmlContent = data.snapshot.html || '';
+                const htmlSize = this.formatFileSize(htmlContent.length);
+                
+                document.getElementById('html-size').textContent = htmlSize;
+                document.getElementById('html-content-display').innerHTML = `<code>${this.escapeHtml(htmlContent)}</code>`;
+                
+                // Add copy and download functionality
+                this.setupHtmlActions(htmlContent);
+                
+            } else {
+                document.getElementById('html-content-display').innerHTML = `<div class="empty-state">No HTML content available</div>`;
+                document.getElementById('html-size').textContent = '0 bytes';
+            }
+            
+        } catch (error) {
+            console.error('Error loading raw HTML:', error);
+            document.getElementById('html-content-display').innerHTML = `<div class="error">Error loading HTML content</div>`;
+        }
+    }
+
+    async loadRawCss() {
+        if (!this.currentSnapshot?.id) return;
+
+        try {
+            const response = await fetch(`/snapshots/${this.currentSnapshot.id}`);
+            const data = await response.json();
+            
+            if (data.success && data.snapshot) {
+                const cssContent = data.snapshot.css || '';
+                const cssSize = this.formatFileSize(cssContent.length);
+                
+                document.getElementById('css-size').textContent = cssSize;
+                
+                if (cssContent) {
+                    document.getElementById('css-content-display').innerHTML = `<code>${this.escapeHtml(cssContent)}</code>`;
+                } else {
+                    document.getElementById('css-content-display').innerHTML = `<div class="empty-state">No CSS content captured</div>`;
+                }
+                
+                // Add copy and download functionality  
+                this.setupCssActions(cssContent);
+                
+            } else {
+                document.getElementById('css-content-display').innerHTML = `<div class="empty-state">No CSS content available</div>`;
+                document.getElementById('css-size').textContent = '0 bytes';
+            }
+            
+        } catch (error) {
+            console.error('Error loading raw CSS:', error);
+            document.getElementById('css-content-display').innerHTML = `<div class="error">Error loading CSS content</div>`;
+        }
+    }
+
+    setupHtmlActions(htmlContent) {
+        const copyBtn = document.getElementById('copy-html-btn');
+        const downloadBtn = document.getElementById('download-html-btn');
+
+        copyBtn.onclick = () => this.copyToClipboard(htmlContent, 'HTML');
+        downloadBtn.onclick = () => this.downloadContent(htmlContent, `snapshot-${this.currentSnapshot.id}.html`, 'text/html');
+    }
+
+    setupCssActions(cssContent) {
+        const copyBtn = document.getElementById('copy-css-btn');
+        const downloadBtn = document.getElementById('download-css-btn');
+
+        copyBtn.onclick = () => this.copyToClipboard(cssContent, 'CSS');
+        downloadBtn.onclick = () => this.downloadContent(cssContent, `snapshot-${this.currentSnapshot.id}.css`, 'text/css');
+    }
+
+    async copyToClipboard(content, type) {
+        try {
+            await navigator.clipboard.writeText(content);
+            this.showToast(`${type} content copied to clipboard! 📋`);
+        } catch (error) {
+            console.error('Failed to copy to clipboard:', error);
+            this.showToast(`Failed to copy ${type} content ❌`, 'error');
+        }
+    }
+
+    downloadContent(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        this.showToast(`${filename} downloaded! 💾`);
+    }
+
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 bytes';
+        const k = 1024;
+        const sizes = ['bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    showToast(message, type = 'success') {
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${type === 'success' ? '#28a745' : '#dc3545'};
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-weight: 500;
+            z-index: 10000;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.3s ease;
+        `;
+        
+        document.body.appendChild(toast);
+        
+        // Animate in
+        setTimeout(() => {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0)';
+        }, 10);
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-20px)';
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300);
+        }, 3000);
     }
 }
 

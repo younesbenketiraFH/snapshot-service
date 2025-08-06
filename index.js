@@ -8,6 +8,7 @@ const { logger, httpLogger } = require('./logger');
 const Database = require('./database');
 const SnapshotQueue = require('./services/queueService');
 const BrowserService = require('./services/browserService');
+const SnapshotSecurityMiddleware = require('./middleware/snapshotSecurityMiddleware');
 
 // Import controllers
 const dashboardController = require('./controllers/dashboardController');
@@ -19,6 +20,7 @@ const PORT = process.env.PORT || 8847;
 const db = new Database();
 const snapshotQueue = new SnapshotQueue();
 const browserService = new BrowserService();
+const snapshotSecurity = new SnapshotSecurityMiddleware();
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -35,8 +37,11 @@ app.use(helmet({
 }));
 app.use(cors());
 app.use(httpLogger);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// FullStory-style security middleware to block snapshot DOM requests
+app.use(snapshotSecurity.blockSnapshotRequests);
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Serve static files (dashboard)
 app.use(express.static('public'));

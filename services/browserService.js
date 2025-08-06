@@ -1,7 +1,6 @@
 const puppeteer = require('puppeteer');
 const Database = require('../database');
 const CompressionUtils = require('../compression');
-const { JSDOM, VirtualConsole } = require('jsdom');
 
 class BrowserService {
   constructor(options = {}) {
@@ -102,11 +101,6 @@ class BrowserService {
   }
 
   async takeSnapshotScreenshot(snapshotId, options = {}) {
-    // DEBUGGING: Timeout immediately to skip browser processing and focus on DOM only
-    console.log(`🧪 DEBUG: Skipping browser screenshot processing for ${snapshotId} to isolate DOM issues`);
-    await new Promise(resolve => setTimeout(resolve, 1));
-    throw new Error('Browser processing disabled for DOM debugging');
-    
     const browserInstance = await this.getBrowser();
     
     try {
@@ -118,14 +112,8 @@ class BrowserService {
         throw new Error(`Snapshot ${snapshotId} not found`);
       }
 
-      // Use raw snapshot data or decompress if compressed
+      // Use raw snapshot data
       let decompressedSnapshot = snapshot;
-      if (snapshot.html_compressed || snapshot.css_compressed) {
-        console.log('🗜️ Decompressing snapshot for browser rendering:', snapshotId);
-        decompressedSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
-      } else {
-        console.log('🧪 DEBUG MODE: Using raw uncompressed HTML/CSS for browser rendering:', snapshotId);
-      }
 
       if (!decompressedSnapshot.html) {
         throw new Error(`No HTML content available for snapshot ${snapshotId}`);
@@ -141,8 +129,7 @@ class BrowserService {
         // Disable JavaScript to prevent any script execution but allow all network requests
         await page.setJavaScriptEnabled(false);
         
-        // DEBUGGING: Remove all network blocking to test if that's causing white rendering
-        console.log('🧪 DEBUG MODE: All network requests allowed, only JavaScript disabled');
+        // Only JavaScript disabled for security
 
         await page.setViewport({
           width: viewportWidth,
@@ -153,9 +140,7 @@ class BrowserService {
         // Create the complete HTML with CSS styles
         const fullHtml = this.buildCompleteHtml(decompressedSnapshot, snapshot);
         
-        console.log(`🌐 Loading decompressed snapshot directly into browser`);
-        console.log('📄 Full HTML length:', fullHtml.length);
-        console.log('📄 Full HTML preview:', fullHtml.substring(0, 500) + '...');
+        console.log(`🌐 Loading snapshot directly into browser (${fullHtml.length} chars)`);
         
         // Load the HTML content directly into the page
         await page.setContent(fullHtml, {
@@ -218,13 +203,7 @@ class BrowserService {
   }
 
   buildCompleteHtml(decompressedSnapshot, originalSnapshot) {
-    console.log('🔍 Building HTML for screenshot:', {
-      snapshotId: originalSnapshot.id,
-      htmlLength: decompressedSnapshot.html?.length || 0,
-      cssLength: decompressedSnapshot.css?.length || 0,
-      htmlPreview: decompressedSnapshot.html?.substring(0, 200) + '...',
-      cssPreview: decompressedSnapshot.css?.substring(0, 200) + '...'
-    });
+    console.log(`🔍 Building HTML for screenshot ${originalSnapshot.id} (${decompressedSnapshot.html?.length || 0} HTML chars, ${decompressedSnapshot.css?.length || 0} CSS chars)`);
 
     // Check if we have valid HTML content
     if (!decompressedSnapshot.html || decompressedSnapshot.html.trim().length === 0) {
@@ -232,42 +211,31 @@ class BrowserService {
       throw new Error('No HTML content available for screenshot generation');
     }
 
-    let originalDoc;
-    
-    try {
-      const silentVC = new VirtualConsole();
-      const dom = new JSDOM(decompressedSnapshot.html, { 
-        virtualConsole: silentVC,
-        runScripts: "outside-only" // Prevent script execution
-      });
-      originalDoc = dom.window.document;
-      
-      // Remove all JavaScript elements for security
-      this.sanitizeDocument(originalDoc);
-      
-      console.log('✅ DOM parsed successfully with JSDOM');
-    } catch (e) {
-      // limit the error message to 50 characters
-      const errorMessage = e.message.length > 50 ? e.message.substring(0, 50) + '...' : e.message;
-      console.error('❌ Error parsing HTML with JSDOM:', errorMessage);
-      console.error('HTML content that failed to parse:', decompressedSnapshot.html?.substring(0, 500));
-      // Fallback to simple parsing
-      originalDoc = null;
-    }
-
-    // Extract existing head content and body content
+    // Extract existing head content and body content using simple regex
     let existingHead = '';
     let bodyContent = decompressedSnapshot.html;
-
-    if (originalDoc) {
-      existingHead = originalDoc.head ? originalDoc.head.innerHTML : '';
-      bodyContent = originalDoc.body ? originalDoc.body.outerHTML : decompressedSnapshot.html;
-      console.log('📝 Extracted content:', {
-        headLength: existingHead.length,
-        bodyLength: bodyContent.length
-      });
-    } else {
-      console.warn('⚠️ Using fallback HTML parsing - no DOM manipulation');
+    
+    try {
+      // Extract head content
+      const headMatch = decompressedSnapshot.html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
+      if (headMatch) {
+        existingHead = headMatch[1];
+      }
+      
+      // Extract body content  
+      const bodyMatch = decompressedSnapshot.html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      if (bodyMatch) {
+        bodyContent = `<body${decompressedSnapshot.html.match(/<body[^>]*>/i)?.[0].slice(5) || '>'}${bodyMatch[1]}</body>`;
+      } else {
+        // If no body tag, use the whole HTML as body content
+        bodyContent = decompressedSnapshot.html;
+      }
+      
+      console.log(`✅ HTML parsed successfully (head: ${existingHead.length} chars, body: ${bodyContent.length} chars)`);
+    } catch (e) {
+      console.warn('⚠️ HTML extraction failed, using original content:', e.message);
+      existingHead = '';
+      bodyContent = decompressedSnapshot.html;
     }
 
     // Build the complete HTML with all styles and content
@@ -281,6 +249,12 @@ class BrowserService {
     <meta name="capture-timestamp" content="${originalSnapshot.created_at}">
     <meta name="capture-url" content="${originalSnapshot.url || 'unknown'}">
     <meta name="viewport-size" content="${originalSnapshot.viewport_width || 1920}x${originalSnapshot.viewport_height || 1080}">
+    
+    <!-- FullStory-style security headers to block API requests but allow CSS/images -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' data: blob: https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'none'; script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="Referrer-Policy" content="no-referrer">
     
     <!-- Original head content preserved -->
     ${existingHead}
@@ -404,47 +378,6 @@ ${bodyContent || '<body><h1>No content available</h1><p>The snapshot HTML conten
     });
   }
 
-  sanitizeDocument(doc) {
-    if (!doc) return;
-    
-    console.log('🧹 Sanitizing snapshot HTML - removing JavaScript elements');
-    
-    // Remove all script tags
-    const scripts = doc.querySelectorAll('script');
-    scripts.forEach(script => {
-      // console.log(`🗑️ Removed script tag: ${script.src || 'inline script'}`);
-      script.remove();
-    });
-    
-    // Remove onclick and other event handlers
-    const allElements = doc.querySelectorAll('*');
-    allElements.forEach(element => {
-      // Remove event handler attributes
-      const eventAttrs = [];
-      for (let attr of element.attributes) {
-        if (attr.name.toLowerCase().startsWith('on')) {
-          eventAttrs.push(attr.name);
-        }
-      }
-      eventAttrs.forEach(attr => {
-        element.removeAttribute(attr);
-      });
-      
-      // Remove javascript: URLs
-      ['href', 'src', 'action'].forEach(attrName => {
-        const attrValue = element.getAttribute(attrName);
-        if (attrValue && attrValue.toLowerCase().startsWith('javascript:')) {
-          element.removeAttribute(attrName);
-        }
-      });
-    });
-    
-    // Remove noscript tags content (they might contain scripts)
-    const noscripts = doc.querySelectorAll('noscript');
-    noscripts.forEach(noscript => noscript.remove());
-    
-    console.log('✅ HTML sanitization completed - all JavaScript removed');
-  }
 
   async cleanupSnapshotAfterScreenshot(snapshotId) {
     try {
