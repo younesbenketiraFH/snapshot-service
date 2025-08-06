@@ -4,7 +4,7 @@ class SnapshotDashboard {
         this.filteredSnapshots = [];
         this.currentSnapshot = null;
         this.zoomLevel = 1.0;
-        this.viewMode = 'screenshot'; // 'screenshot' or 'dom'
+        this.viewMode = 'screenshot';
         
         this.init();
     }
@@ -19,23 +19,24 @@ class SnapshotDashboard {
         document.getElementById('back-btn').addEventListener('click', () => this.showSnapshotsList());
         document.getElementById('refresh-btn').addEventListener('click', () => this.loadSnapshots());
         
+        const deleteBtn = document.getElementById('delete-all-btn');
+        console.log('Delete button found:', !!deleteBtn);
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                console.log('Delete button event triggered');
+                this.deleteAllSnapshots();
+            });
+        } else {
+            console.error('Delete button not found in DOM');
+        }
+        
         // Filters
         document.getElementById('url-filter').addEventListener('input', (e) => this.filterSnapshots());
         document.getElementById('date-filter').addEventListener('change', (e) => this.filterSnapshots());
         
-        // Snapshot viewer controls
-        document.getElementById('exact-viewport').addEventListener('change', (e) => this.toggleExactViewport());
-        document.getElementById('zoom-in').addEventListener('click', () => this.adjustZoom(0.1));
-        document.getElementById('zoom-out').addEventListener('click', () => this.adjustZoom(-0.1));
-        document.getElementById('zoom-reset').addEventListener('click', () => this.resetZoom());
-        document.getElementById('fullscreen-btn').addEventListener('click', () => this.toggleFullscreen());
-        document.getElementById('download-btn').addEventListener('click', () => this.downloadSnapshot());
-        document.getElementById('open-direct-btn').addEventListener('click', () => this.openDirect());
-        
-        // Screenshot controls
-        document.getElementById('screenshot-mode').addEventListener('click', () => this.switchToScreenshotMode());
-        document.getElementById('dom-mode').addEventListener('click', () => this.switchToDomMode());
-        document.getElementById('generate-screenshot').addEventListener('click', () => this.generateScreenshot());
+        // Tab controls
+        document.getElementById('screenshot-tab').addEventListener('click', () => this.showScreenshotTab());
+        document.getElementById('dom-tab').addEventListener('click', () => this.showDomTab());
     }
 
     async loadSnapshots() {
@@ -160,7 +161,6 @@ class SnapshotDashboard {
         
         // Update title and metadata
         document.getElementById('snapshot-title').textContent = `Snapshot: ${this.truncateId(snapshot.id)}`;
-        document.getElementById('original-dimensions').textContent = `${snapshot.viewport_width}x${snapshot.viewport_height}`;
         
         // Render metadata
         const metadataContainer = document.getElementById('snapshot-metadata');
@@ -193,192 +193,44 @@ class SnapshotDashboard {
             </div>
         `;
         
-        // Load screenshot by default, fallback to DOM view
+        // Load DOM tab by default (instead of screenshot)
+        this.loadDomPreview();
+    }
+
+
+    showScreenshotTab() {
+        // Update tab buttons
+        document.getElementById('screenshot-tab').classList.add('active');
+        document.getElementById('dom-tab').classList.remove('active');
+        
+        // Update tab content
+        document.getElementById('screenshot-content').classList.add('active');
+        document.getElementById('dom-content').classList.remove('active');
+        
+        // Load screenshot if not already loaded
         this.loadScreenshot();
     }
 
-    renderExactSnapshot() {
-        const snapshot = this.currentSnapshot;
-        const iframe = document.getElementById('snapshot-frame');
+    showDomTab() {
+        // Update tab buttons
+        document.getElementById('dom-tab').classList.add('active');
+        document.getElementById('screenshot-tab').classList.remove('active');
         
-        console.log('Rendering snapshot via server endpoint:', {
-            id: snapshot.id,
-            htmlLength: snapshot.html?.length || 0,
-            cssLength: snapshot.css?.length || 0,
-            viewport: `${snapshot.viewport_width}x${snapshot.viewport_height}`
-        });
+        // Update tab content
+        document.getElementById('dom-content').classList.add('active');
+        document.getElementById('screenshot-content').classList.remove('active');
         
-        // Use server-side rendering endpoint for legal accuracy
-        const renderUrl = `/render/${snapshot.id}`;
-        
-        // Configure iframe for exact rendering
-        iframe.onload = () => {
-            console.log('Snapshot iframe loaded successfully via server endpoint');
-            
-            // Verify the content loaded correctly
-            try {
-                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                console.log('Iframe document title:', iframeDoc.title);
-                console.log('Legal evidence attributes:', {
-                    legalSnapshot: iframeDoc.documentElement.getAttribute('data-legal-snapshot'),
-                    captureTime: iframeDoc.documentElement.getAttribute('data-capture-time'),
-                    legalStatus: iframeDoc.documentElement.getAttribute('data-legal-status')
-                });
-            } catch (e) {
-                console.warn('Could not access iframe content (security restriction):', e.message);
-            }
-        };
-        
-        iframe.onerror = (error) => {
-            console.error('Iframe loading error:', error);
-            // Fallback error display
-            iframe.srcdoc = `
-                <html>
-                <head><title>Rendering Error</title></head>
-                <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f8f9fa;">
-                    <h2>❌ Snapshot Rendering Error</h2>
-                    <p>Failed to load snapshot: ${snapshot.id}</p>
-                    <p>Error: ${error.message || 'Unknown error'}</p>
-                    <button onclick="parent.location.reload()">Retry</button>
-                </body>
-                </html>
-            `;
-        };
-        
-        // Set the server-side rendering URL
-        iframe.src = renderUrl;
-        
-        // Set exact viewport dimensions for 1:1 legal accuracy
-        this.setExactViewport();
-        
-        console.log('Iframe source set to server endpoint:', renderUrl);
+        // Load DOM preview
+        this.loadDomPreview();
     }
 
-    setExactViewport() {
-        const snapshot = this.currentSnapshot;
-        const container = document.getElementById('snapshot-container');
-        const iframe = document.getElementById('snapshot-frame');
-        const exactViewportCheckbox = document.getElementById('exact-viewport');
-        
-        if (exactViewportCheckbox.checked) {
-            // Set exact dimensions for legal accuracy
-            container.style.width = `${snapshot.viewport_width}px`;
-            container.style.height = `${snapshot.viewport_height}px`;
-            container.classList.add('exact-viewport');
-            
-            iframe.style.width = `${snapshot.viewport_width}px`;
-            iframe.style.height = `${snapshot.viewport_height}px`;
-        } else {
-            // Responsive mode
-            container.style.width = '100%';
-            container.style.height = '80vh';
-            container.classList.remove('exact-viewport');
-            
-            iframe.style.width = '100%';
-            iframe.style.height = '100%';
-        }
-    }
 
-    toggleExactViewport() {
-        this.setExactViewport();
-    }
-
-    adjustZoom(delta) {
-        this.zoomLevel = Math.max(0.1, Math.min(3.0, this.zoomLevel + delta));
-        this.applyZoom();
-    }
-
-    resetZoom() {
-        this.zoomLevel = 1.0;
-        this.applyZoom();
-    }
-
-    applyZoom() {
-        const iframe = document.getElementById('snapshot-frame');
-        iframe.style.transform = `scale(${this.zoomLevel})`;
-        iframe.style.transformOrigin = 'top left';
-        
-        document.getElementById('zoom-level').textContent = `${Math.round(this.zoomLevel * 100)}%`;
-        
-        // Adjust container size for scaling
-        const container = document.getElementById('snapshot-container');
-        const snapshot = this.currentSnapshot;
-        const exactViewportCheckbox = document.getElementById('exact-viewport');
-        
-        if (exactViewportCheckbox.checked) {
-            container.style.width = `${snapshot.viewport_width * this.zoomLevel}px`;
-            container.style.height = `${snapshot.viewport_height * this.zoomLevel}px`;
-        }
-    }
-
-    toggleFullscreen() {
-        const snapshotView = document.getElementById('snapshot-view');
-        snapshotView.classList.toggle('fullscreen-mode');
-        
-        const button = document.getElementById('fullscreen-btn');
-        if (snapshotView.classList.contains('fullscreen-mode')) {
-            button.textContent = '🗗 Exit Fullscreen';
-        } else {
-            button.textContent = '🔍 Fullscreen';
-        }
-    }
-
-    downloadSnapshot() {
-        const snapshot = this.currentSnapshot;
-        if (!snapshot) return;
-        
-        const snapshotHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=${snapshot.viewport_width}, initial-scale=1.0">
-    <title>Legal Snapshot Evidence - ${snapshot.id}</title>
-    <style>
-        ${snapshot.css || ''}
-    </style>
-</head>
-<body>
-    ${snapshot.html || ''}
-    <!-- Legal Evidence Metadata -->
-    <div id="legal-metadata" style="margin-top: 50px; padding: 20px; background: #f8f9fa; border: 1px solid #dee2e6; font-family: monospace; font-size: 12px;">
-        <h3>Legal Evidence Metadata</h3>
-        <p><strong>Snapshot ID:</strong> ${snapshot.id}</p>
-        <p><strong>Captured URL:</strong> ${snapshot.url || 'Not available'}</p>
-        <p><strong>Timestamp:</strong> ${snapshot.created_at}</p>
-        <p><strong>Viewport:</strong> ${snapshot.viewport_width}x${snapshot.viewport_height}px</p>
-        <p><strong>Generated:</strong> ${new Date().toISOString()}</p>
-    </div>
-</body>
-</html>`;
-        
-        const blob = new Blob([snapshotHtml], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `snapshot-${snapshot.id}-legal-evidence.html`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-
-    openDirect() {
-        const snapshot = this.currentSnapshot;
-        if (!snapshot) return;
-        
-        const directUrl = `/render/${snapshot.id}`;
-        window.open(directUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
-    }
 
     showSnapshotsList() {
         document.getElementById('snapshots-view').style.display = 'block';
         document.getElementById('snapshot-view').style.display = 'none';
         
-        // Clean up iframe and screenshot
-        const iframe = document.getElementById('snapshot-frame');
-        iframe.src = 'about:blank';
+        // Clean up screenshot
         const screenshotImage = document.getElementById('screenshot-image');
         screenshotImage.style.display = 'none';
         screenshotImage.src = '';
@@ -388,9 +240,6 @@ class SnapshotDashboard {
         document.getElementById('snapshots-view').style.display = 'none';
         document.getElementById('snapshot-view').style.display = 'block';
         
-        // Reset zoom
-        this.zoomLevel = 1.0;
-        this.applyZoom();
     }
 
     updateResultsCount() {
@@ -403,6 +252,93 @@ class SnapshotDashboard {
     showError(message) {
         document.getElementById('snapshots-list').innerHTML = 
             `<div class="loading">Error: ${message}</div>`;
+    }
+
+    // Custom confirmation dialog to bypass browser settings
+    showConfirmDialog(title, message) {
+        return new Promise((resolve) => {
+            // Create modal overlay
+            const overlay = document.createElement('div');
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10000;
+                font-family: inherit;
+            `;
+            
+            // Create modal dialog
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                background: white;
+                padding: 2rem;
+                border-radius: 12px;
+                max-width: 500px;
+                width: 90%;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+                text-align: center;
+            `;
+            
+            modal.innerHTML = `
+                <h3 style="color: #dc3545; margin-bottom: 1rem; font-size: 1.5rem;">${title}</h3>
+                <p style="margin-bottom: 2rem; white-space: pre-line; color: #333; line-height: 1.5;">${message}</p>
+                <div style="display: flex; gap: 1rem; justify-content: center;">
+                    <button id="confirm-cancel" style="
+                        padding: 0.75rem 1.5rem;
+                        border: 1px solid #6c757d;
+                        background: white;
+                        color: #6c757d;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 1rem;
+                    ">Cancel</button>
+                    <button id="confirm-ok" style="
+                        padding: 0.75rem 1.5rem;
+                        border: none;
+                        background: #dc3545;
+                        color: white;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 1rem;
+                        font-weight: 600;
+                    ">Delete All</button>
+                </div>
+            `;
+            
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+            
+            // Handle button clicks
+            const handleResult = (result) => {
+                document.body.removeChild(overlay);
+                resolve(result);
+            };
+            
+            modal.querySelector('#confirm-ok').addEventListener('click', () => handleResult(true));
+            modal.querySelector('#confirm-cancel').addEventListener('click', () => handleResult(false));
+            
+            // Close on overlay click
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    handleResult(false);
+                }
+            });
+            
+            // Close on Escape key
+            const handleKeydown = (e) => {
+                if (e.key === 'Escape') {
+                    document.removeEventListener('keydown', handleKeydown);
+                    handleResult(false);
+                }
+            };
+            document.addEventListener('keydown', handleKeydown);
+        });
     }
 
     // Utility functions
@@ -433,24 +369,50 @@ class SnapshotDashboard {
             screenshotStatus.innerHTML = '<div class="loading">Loading screenshot...</div>';
             screenshotImage.style.display = 'none';
             
+            console.log('🔍 Loading screenshot for snapshot:', snapshot.id);
             const response = await fetch(`/snapshots/${snapshot.id}/screenshot`);
+            
+            console.log('📸 Screenshot response:', {
+                status: response.status,
+                contentType: response.headers.get('content-type'),
+                contentLength: response.headers.get('content-length')
+            });
             
             if (response.ok) {
                 // Screenshot exists
                 const blob = await response.blob();
+                console.log('📸 Screenshot blob:', {
+                    size: blob.size,
+                    type: blob.type
+                });
+                
                 const imageUrl = URL.createObjectURL(blob);
+                
+                screenshotImage.onload = () => {
+                    console.log('✅ Screenshot image loaded successfully');
+                    screenshotStatus.style.display = 'none';
+                };
+                
+                screenshotImage.onerror = (error) => {
+                    console.error('❌ Screenshot image failed to load:', error);
+                    screenshotStatus.innerHTML = `
+                        <div class="error">
+                            <p>❌ Failed to display screenshot</p>
+                            <p>Image may be corrupted</p>
+                        </div>
+                    `;
+                };
                 
                 screenshotImage.src = imageUrl;
                 screenshotImage.style.display = 'block';
-                screenshotStatus.style.display = 'none';
                 
                 console.log('Screenshot loaded successfully');
             } else if (response.status === 404) {
-                // No screenshot exists, show generate button
+                // No screenshot exists
                 screenshotStatus.innerHTML = `
                     <div class="no-screenshot">
                         <p>📷 No screenshot available for this snapshot</p>
-                        <p>Click "Generate Screenshot" to create one</p>
+                        <p>Screenshot may still be processing...</p>
                     </div>
                 `;
             } else {
@@ -467,96 +429,122 @@ class SnapshotDashboard {
         }
     }
 
-    async generateScreenshot() {
-        const snapshot = this.currentSnapshot;
-        const button = document.getElementById('generate-screenshot');
+
+
+
+    async deleteAllSnapshots() {
+        console.log('🗑️ Delete all button clicked');
+        
+        // Show custom confirmation dialog to bypass browser "don't ask again" settings
+        const confirmed = await this.showConfirmDialog(
+            'Delete All Snapshots',
+            '⚠️ WARNING: This will permanently delete ALL snapshots from the database.\n\n' +
+            'This action cannot be undone. Are you sure you want to continue?'
+        );
+        
+        console.log('Confirmation result:', confirmed);
+        
+        if (!confirmed) {
+            return;
+        }
+        
+        const button = document.getElementById('delete-all-btn');
         const originalText = button.textContent;
         
         try {
             button.disabled = true;
-            button.textContent = '⏳ Generating...';
+            button.textContent = '⏳ Deleting...';
             
-            console.log('Generating screenshot for snapshot:', snapshot.id);
+            console.log('Deleting all snapshots...');
             
-            const response = await fetch(`/snapshots/${snapshot.id}/screenshot`, {
-                method: 'POST',
+            const response = await fetch('/snapshots', {
+                method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    format: 'webp',
-                    quality: 90,
-                    fullPage: false
-                })
+                }
             });
             
             const data = await response.json();
             
             if (data.success) {
-                console.log('Screenshot generated successfully:', data.result);
-                button.textContent = '✅ Generated!';
+                console.log('All snapshots deleted successfully:', data);
+                button.textContent = '✅ Deleted!';
                 
-                // Reload the screenshot
+                // Reload the snapshots list
                 setTimeout(() => {
-                    this.loadScreenshot();
+                    this.loadSnapshots();
                     button.textContent = originalText;
                     button.disabled = false;
+                    
+                    // Show success message
+                    alert(`✅ Successfully deleted ${data.deletedCount} snapshots`);
                 }, 1000);
             } else {
-                throw new Error(data.message || 'Failed to generate screenshot');
+                throw new Error(data.message || 'Failed to delete snapshots');
             }
         } catch (error) {
-            console.error('Error generating screenshot:', error);
+            console.error('Error deleting all snapshots:', error);
             button.textContent = '❌ Failed';
             setTimeout(() => {
                 button.textContent = originalText;
                 button.disabled = false;
             }, 2000);
             
-            this.showError(`Screenshot generation failed: ${error.message}`);
+            alert(`❌ Failed to delete snapshots: ${error.message}`);
         }
     }
 
-    switchToScreenshotMode() {
-        this.viewMode = 'screenshot';
+    async loadDomPreview() {
+        const snapshot = this.currentSnapshot;
+        const domStatus = document.getElementById('dom-status');
+        const domFrame = document.getElementById('dom-frame');
         
-        // Update buttons
-        document.getElementById('screenshot-mode').classList.add('active');
-        document.getElementById('screenshot-mode').classList.remove('btn-secondary');
-        document.getElementById('screenshot-mode').classList.add('btn-primary');
-        
-        document.getElementById('dom-mode').classList.remove('active');
-        document.getElementById('dom-mode').classList.remove('btn-primary');
-        document.getElementById('dom-mode').classList.add('btn-secondary');
-        
-        // Show/hide views
-        document.getElementById('screenshot-view').style.display = 'block';
-        document.getElementById('dom-view').style.display = 'none';
-        
-        this.loadScreenshot();
-    }
-
-    switchToDomMode() {
-        this.viewMode = 'dom';
-        
-        // Update buttons
-        document.getElementById('dom-mode').classList.add('active');
-        document.getElementById('dom-mode').classList.remove('btn-secondary');
-        document.getElementById('dom-mode').classList.add('btn-primary');
-        
-        document.getElementById('screenshot-mode').classList.remove('active');
-        document.getElementById('screenshot-mode').classList.remove('btn-primary');
-        document.getElementById('screenshot-mode').classList.add('btn-secondary');
-        
-        // Show/hide views
-        document.getElementById('screenshot-view').style.display = 'none';
-        document.getElementById('dom-view').style.display = 'block';
-        
-        this.renderExactSnapshot();
+        try {
+            domStatus.innerHTML = '<div class="loading">Loading DOM preview...</div>';
+            domFrame.style.display = 'none';
+            
+            console.log('🌐 Loading DOM preview for snapshot:', snapshot.id);
+            
+            // Load the DOM preview directly in iframe
+            const domUrl = `/render/${snapshot.id}`;
+            
+            domFrame.onload = () => {
+                console.log('✅ DOM preview loaded successfully');
+                domStatus.style.display = 'none';
+            };
+            
+            domFrame.onerror = (error) => {
+                console.error('❌ DOM preview failed to load:', error);
+                domStatus.innerHTML = `
+                    <div class="error">
+                        <p>❌ Failed to load DOM preview</p>
+                        <p>DOM data may have been cleaned up</p>
+                    </div>
+                `;
+            };
+            
+            domFrame.src = domUrl;
+            domFrame.style.display = 'block';
+            
+        } catch (error) {
+            console.error('Error loading DOM preview:', error);
+            domStatus.innerHTML = `
+                <div class="error">
+                    <p>❌ Error loading DOM preview</p>
+                    <p>DOM data may have been cleaned up</p>
+                </div>
+            `;
+        }
     }
 }
 
 // Initialize dashboard when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new SnapshotDashboard();
+    console.log('DOM loaded, initializing dashboard');
+    try {
+        const dashboard = new SnapshotDashboard();
+        console.log('Dashboard initialized successfully');
+    } catch (error) {
+        console.error('Failed to initialize dashboard:', error);
+    }
 });

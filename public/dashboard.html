@@ -17,7 +17,10 @@
         <div id="snapshots-view" class="view-container">
             <div class="view-header">
                 <h2>Captured Snapshots</h2>
-                <button id="refresh-btn" class="btn btn-primary">🔄 Refresh</button>
+                <div class="header-actions">
+                    <button id="delete-all-btn" class="btn btn-danger">🗑️ Delete All</button>
+                    <button id="refresh-btn" class="btn btn-primary">🔄 Refresh</button>
+                </div>
             </div>
             
             <div class="filters">
@@ -42,9 +45,7 @@
                 <button id="back-btn" class="btn btn-secondary">← Back to List</button>
                 <h2 id="snapshot-title">Snapshot Details</h2>
                 <div class="snapshot-actions">
-                    <button id="download-btn" class="btn btn-primary">💾 Download HTML</button>
-                    <button id="fullscreen-btn" class="btn btn-secondary">🔍 Fullscreen</button>
-                    <button id="open-direct-btn" class="btn btn-secondary">🔗 Open Direct</button>
+                    <!-- Actions will be added here -->
                 </div>
             </div>
 
@@ -53,51 +54,32 @@
             </div>
 
             <div class="snapshot-viewer">
-                <div class="viewer-controls">
-                    <div class="view-mode-toggle">
-                        <button id="screenshot-mode" class="btn btn-primary active">📷 Screenshot</button>
-                        <button id="dom-mode" class="btn btn-secondary">🌐 DOM View</button>
-                    </div>
-                    <button id="generate-screenshot" class="btn btn-success">📸 Generate Screenshot</button>
+                <!-- Tab Navigation -->
+                <div class="tab-navigation">
+                    <button id="screenshot-tab" class="tab-btn">📸 Screenshot</button>
+                    <button id="dom-tab" class="tab-btn active">🌐 DOM View</button>
                 </div>
                 
-                <!-- Screenshot View -->
-                <div id="screenshot-view" class="screenshot-container">
+                <!-- Screenshot Tab Content -->
+                <div id="screenshot-content" class="tab-content">
                     <div class="screenshot-status" id="screenshot-status">
                         <div class="loading">Loading screenshot...</div>
                     </div>
                     <img id="screenshot-image" style="max-width: 100%; height: auto; display: none;" alt="Snapshot Screenshot">
                 </div>
                 
-                <!-- DOM View (original iframe) -->
-                <div id="dom-view" class="dom-container" style="display: none;">
-                    <div class="viewport-controls">
-                        <label>
-                            <input type="checkbox" id="exact-viewport" checked> 
-                            Exact Original Viewport (<span id="original-dimensions"></span>)
-                        </label>
-                        <div class="zoom-controls">
-                            <button id="zoom-out" class="btn btn-small">−</button>
-                            <span id="zoom-level">100%</span>
-                            <button id="zoom-in" class="btn btn-small">+</button>
-                            <button id="zoom-reset" class="btn btn-small">Reset</button>
-                        </div>
+                <!-- DOM Tab Content -->
+                <div id="dom-content" class="tab-content active">
+                    <div class="dom-status" id="dom-status">
+                        <div class="loading">Loading DOM preview...</div>
                     </div>
-                    
-                    <div id="snapshot-container" class="snapshot-container">
-                        <iframe 
-                            id="snapshot-frame" 
-                            sandbox="allow-same-origin"
-                            style="border: none; width: 100%; height: 100%;"
-                            title="Legal Snapshot Evidence">
-                        </iframe>
-                    </div>
+                    <iframe id="dom-frame" style="width: 100%; height: 80vh; border: 1px solid #ddd; display: none;" 
+                            title="DOM Preview"></iframe>
                 </div>
             </div>
 
             <div class="legal-footer">
-                <p><strong>⚖️ Legal Notice:</strong> This snapshot represents the exact DOM and CSS as captured at the specified timestamp. 
-                All styles, layout, and content are preserved for legal evidence purposes.</p>
+                <p><strong>⚖️ Legal Notice:</strong> This screenshot represents the exact visual state as captured at the specified timestamp for legal evidence purposes.</p>
             </div>
         </div>
     </main>

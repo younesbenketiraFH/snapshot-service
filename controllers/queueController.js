@@ -19,7 +19,7 @@ router.get('/stats', async (req, res) => {
       stats
     });
   } catch (error) {
-    console.error('Error getting queue stats:', error);
+    logger.error('Error getting queue stats:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get queue stats'
@@ -36,7 +36,7 @@ router.get('/job/:jobId', async (req, res) => {
       job: jobStatus
     });
   } catch (error) {
-    console.error('Error getting job status:', error);
+    logger.error('Error getting job status:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get job status'
@@ -54,7 +54,7 @@ router.post('/cleanup', async (req, res) => {
       message: 'Queue cleanup completed'
     });
   } catch (error) {
-    console.error('Error cleaning up queue:', error);
+    logger.error('Error cleaning up queue:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to cleanup queue'

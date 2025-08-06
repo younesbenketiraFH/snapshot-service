@@ -21,8 +21,8 @@ WORKDIR /usr/src/app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install all dependencies including dev dependencies for nodemon
+RUN npm ci
 
 # Copy application code
 COPY . .
@@ -37,5 +37,5 @@ EXPOSE 8847
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8847/health || exit 1
 
-# Start the application
-CMD ["npm", "start"]
+# Start the application in dev mode with hot reloading
+CMD ["npm", "run", "dev"]

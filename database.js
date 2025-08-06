@@ -1,6 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
+const { logger } = require('./logger');
 
 class Database {
   constructor(dbPath = null) {
@@ -18,7 +19,7 @@ class Database {
     return new Promise((resolve, reject) => {
       this.db = new sqlite3.Database(this.dbPath, (err) => {
         if (err) {
-          console.error('Error opening database:', err);
+          logger.error('Error opening database:', err);
           return reject(err);
         }
         
@@ -70,14 +71,14 @@ class Database {
       this.db.serialize(() => {
         this.db.run(createSnapshotsTable, (err) => {
           if (err) {
-            console.error('Error creating snapshots table:', err);
+            logger.error('Error creating snapshots table:', err);
             return reject(err);
           }
         });
 
         this.db.run(createIndexes, (err) => {
           if (err) {
-            console.error('Error creating indexes:', err);
+            logger.error('Error creating indexes:', err);
             return reject(err);
           }
           
@@ -129,11 +130,11 @@ class Database {
 
       this.db.run(sql, params, function(err) {
         if (err) {
-          console.error('Error saving snapshot:', err);
+          logger.error('Error saving snapshot:', err);
           return reject(err);
         }
 
-        console.log('Snapshot saved with ID:', id);
+        logger.info('Snapshot saved with ID:', id);
         resolve({ id, rowid: this.lastID });
       });
     });
@@ -149,12 +150,27 @@ class Database {
 
       this.db.run(sql, [status, processedAt, id], function(err) {
         if (err) {
-          console.error('Error updating snapshot status:', err);
+          logger.error('Error updating snapshot status:', err);
           return reject(err);
         }
 
-        console.log('Updated snapshot status:', { id, status, changes: this.changes });
+        logger.info('Updated snapshot status:', { id, status, changes: this.changes });
         resolve({ id, changes: this.changes });
+      });
+    });
+  }
+
+  async updateSnapshotJobId(id, jobId) {
+    return new Promise((resolve, reject) => {
+      const sql = 'UPDATE snapshots SET queue_job_id = ? WHERE id = ?';
+      this.db.run(sql, [jobId, id], function(err) {
+        if (err) {
+          logger.error('Error updating snapshot job ID:', err);
+          return reject(err);
+        }
+
+        logger.info('Updated snapshot job ID:', { id, jobId, changes: this.changes });
+        resolve({ id, jobId, changes: this.changes });
       });
     });
   }
@@ -165,7 +181,7 @@ class Database {
       
       this.db.get(sql, [id], (err, row) => {
         if (err) {
-          console.error('Error retrieving snapshot:', err);
+          logger.error('Error retrieving snapshot:', err);
           return reject(err);
         }
 
@@ -194,7 +210,7 @@ class Database {
       
       this.db.all(sql, [limit], (err, rows) => {
         if (err) {
-          console.error('Error retrieving recent snapshots:', err);
+          logger.error('Error retrieving recent snapshots:', err);
           return reject(err);
         }
 
@@ -203,13 +219,63 @@ class Database {
     });
   }
 
+  async deleteAllSnapshots() {
+    return new Promise((resolve, reject) => {
+      const sql = 'DELETE FROM snapshots';
+      
+      this.db.run(sql, function(err) {
+        if (err) {
+          logger.error('Error deleting all snapshots:', err);
+          return reject(err);
+        }
+
+        logger.info('All snapshots deleted:', { changes: this.changes });
+        resolve({ changes: this.changes });
+      });
+    });
+  }
+
+  async cleanupSnapshotDomData(snapshotId) {
+    return new Promise((resolve, reject) => {
+      logger.info(`🧹 Cleaning up DOM data for snapshot: ${snapshotId}`);
+      
+      const sql = `
+        UPDATE snapshots 
+        SET html = NULL,
+            css = NULL,
+            html_compressed = NULL,
+            css_compressed = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `;
+      
+      this.db.run(sql, [snapshotId], function(err) {
+        if (err) {
+          logger.error('Error cleaning up snapshot DOM data:', err);
+          return reject(err);
+        }
+
+        if (this.changes > 0) {
+          logger.info('✅ DOM data cleaned up successfully:', { 
+            snapshotId, 
+            changes: this.changes 
+          });
+        } else {
+          logger.warn('⚠️ No rows updated during DOM cleanup:', { snapshotId });
+        }
+        
+        resolve({ snapshotId, changes: this.changes });
+      });
+    });
+  }
+
   close() {
     if (this.db) {
       this.db.close((err) => {
         if (err) {
-          console.error('Error closing database:', err);
+          logger.error('Error closing database:', err);
         } else {
-          console.log('Database connection closed');
+          logger.info('Database connection closed');
         }
       });
     }

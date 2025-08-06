@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const CompressionUtils = require('../compression');
+const { logger } = require('../logger');
+const { JSDOM, VirtualConsole } = require('jsdom');
 
 // Snapshot controller will receive dependencies via middleware
 let db, snapshotQueue, browserService;
@@ -23,44 +25,41 @@ router.post('/snapshot', async (req, res) => {
   
   const snapshotId = `snapshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
-  console.log('📥 Received snapshot request:', {
+  logger.info('📥 Received snapshot request:', {
     id: snapshotId,
     htmlLength: html.length,
     cssLength: css ? css.length : 0,
     options: options || {}
   });
+
+  // DEBUGGING: Log the actual HTML and CSS content being captured
+  console.log('🧪 DEBUG: First 1000 chars of HTML:', html.substring(0, 1000));
+  console.log('🧪 DEBUG: First 500 chars of CSS:', css ? css.substring(0, 500) : 'No CSS provided');
   
   try {
-    // Compress the snapshot data
-    const compressionType = process.env.COMPRESSION_TYPE || 'brotli';
-    console.log('🗜️ Compressing snapshot with', compressionType);
+    // DEBUGGING: Skip compression and save raw HTML/CSS to isolate compression issues
+    logger.info('🧪 DEBUGGING MODE: Saving raw uncompressed HTML/CSS to test rendering');
     
-    const compressedSnapshot = await CompressionUtils.compressSnapshot({
-      id: snapshotId,
-      html,
-      css,
-      url: options?.url,
-      viewport: options?.viewport,
-      options: options
-    }, compressionType);
-
-    // Prepare data for database (with compressed versions)
+    // Prepare data for database (raw uncompressed content)
     const snapshotData = {
       id: snapshotId,
-      html: null, // Don't store uncompressed HTML to save space
-      css: null,  // Don't store uncompressed CSS to save space
+      html: html, // Store raw HTML for debugging
+      css: css,   // Store raw CSS for debugging
       url: options?.url,
       viewport: options?.viewport,
       options: options,
-      htmlCompressed: compressedSnapshot.htmlCompressed,
-      cssCompressed: compressedSnapshot.cssCompressed,
-      compressionType,
-      originalHtmlSize: compressedSnapshot.originalHtmlSize,
-      originalCssSize: compressedSnapshot.originalCssSize,
-      compressedHtmlSize: compressedSnapshot.compressedHtmlSize,
-      compressedCssSize: compressedSnapshot.compressedCssSize,
+      htmlCompressed: null, // Skip compression for debugging
+      cssCompressed: null,  // Skip compression for debugging
+      compressionType: 'none',
+      originalHtmlSize: html.length,
+      originalCssSize: css ? css.length : 0,
+      compressedHtmlSize: 0, // No compression
+      compressedCssSize: 0,  // No compression
       processingStatus: 'queued'
     };
+
+    // Save to database
+    await db.saveSnapshot(snapshotData);
 
     // Add job to queue
     const queueJob = await snapshotQueue.addSnapshotJob({
@@ -68,35 +67,40 @@ router.post('/snapshot', async (req, res) => {
       metadata: {
         url: options?.url,
         viewport: options?.viewport,
-        compressionType,
-        compressionStats: compressedSnapshot.compressionStats
+        compressionType: 'none',
+        rawDebugMode: true,
+        htmlSize: html.length,
+        cssSize: css ? css.length : 0
       }
     });
 
     // Update snapshot with job ID
-    snapshotData.queueJobId = queueJob.jobId;
+    await db.updateSnapshotJobId(snapshotId, queueJob.jobId);
 
-    // Save to database
-    await db.saveSnapshot(snapshotData);
-
-    console.log('✅ Snapshot compressed, saved, and queued:', {
+    logger.info('✅ Snapshot saved raw (uncompressed) and queued:', {
       id: snapshotId,
       jobId: queueJob.jobId,
-      compressionStats: compressedSnapshot.compressionStats
+      htmlSize: html.length,
+      cssSize: css ? css.length : 0
     });
 
     res.json({
       success: true,
-      message: 'Snapshot compressed, saved, and queued for processing',
+      message: 'Snapshot saved raw (uncompressed) and queued for processing',
       id: snapshotId,
       jobId: queueJob.jobId,
       queuePosition: queueJob.queuePosition,
-      compressionStats: compressedSnapshot.compressionStats,
+      compressionStats: {
+        totalOriginalSize: html.length + (css ? css.length : 0),
+        totalCompressedSize: html.length + (css ? css.length : 0),
+        overallCompressionRatio: 0.0, // No compression for debugging
+        compressionTimeMs: 0
+      },
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('❌ Error processing snapshot:', error);
+    logger.error('❌ Error processing snapshot:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to process snapshot',
@@ -116,7 +120,7 @@ router.get('/snapshots', async (req, res) => {
       count: snapshots.length
     });
   } catch (error) {
-    console.error('Error retrieving snapshots:', error);
+    logger.error('Error retrieving snapshots:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve snapshots'
@@ -136,11 +140,13 @@ router.get('/snapshots/:id', async (req, res) => {
       });
     }
 
-    // Decompress if needed for API response
+    // Decompress if needed for API response, otherwise use raw data
     let responseSnapshot = snapshot;
     if (snapshot.html_compressed || snapshot.css_compressed) {
-      console.log('🗜️ Decompressing snapshot for API response:', snapshot.id);
+      logger.info('🗜️ Decompressing snapshot for API response:', snapshot.id);
       responseSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
+    } else {
+      logger.info('🧪 DEBUG MODE: Returning raw uncompressed snapshot data:', snapshot.id);
     }
 
     res.json({
@@ -148,7 +154,7 @@ router.get('/snapshots/:id', async (req, res) => {
       snapshot: responseSnapshot
     });
   } catch (error) {
-    console.error('Error retrieving snapshot:', error);
+    logger.error('Error retrieving snapshot:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve snapshot'
@@ -156,228 +162,6 @@ router.get('/snapshots/:id', async (req, res) => {
   }
 });
 
-// GET /render/:id - Render snapshot as HTML for legal evidence viewing
-router.get('/render/:id', async (req, res) => {
-  try {
-    const snapshot = await db.getSnapshot(req.params.id);
-    
-    if (!snapshot) {
-      return res.status(404).send(`
-        <!DOCTYPE html>
-        <html>
-        <head><title>Snapshot Not Found</title></head>
-        <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-          <h1>⚠️ Snapshot Not Found</h1>
-          <p>The requested snapshot ID "${req.params.id}" could not be found.</p>
-          <a href="/dashboard">← Back to Dashboard</a>
-        </body>
-        </html>
-      `);
-    }
-
-    // Decompress snapshot if it's compressed
-    let decompressedSnapshot = snapshot;
-    if (snapshot.html_compressed || snapshot.css_compressed) {
-      console.log('🗜️ Decompressing snapshot for rendering:', snapshot.id);
-      decompressedSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
-    }
-
-    // Parse the original HTML to extract head and body content
-    const DOMParser = require('jsdom').JSDOM;
-    let originalDoc;
-    
-    try {
-      const dom = new DOMParser(decompressedSnapshot.html);
-      originalDoc = dom.window.document;
-    } catch (e) {
-      console.error('Error parsing HTML with JSDOM:', e);
-      // Fallback to simple parsing
-      originalDoc = null;
-    }
-
-    // Extract existing head content and body content
-    let existingHead = '';
-    let bodyContent = decompressedSnapshot.html;
-
-    if (originalDoc) {
-      existingHead = originalDoc.head ? originalDoc.head.innerHTML : '';
-      bodyContent = originalDoc.body ? originalDoc.body.outerHTML : decompressedSnapshot.html;
-    }
-
-    // Create the complete legal evidence HTML
-    const legalSnapshotHtml = `<!DOCTYPE html>
-<html lang="en" data-legal-snapshot="${snapshot.id}" data-capture-time="${snapshot.created_at}">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=${snapshot.viewport_width || 1920}, initial-scale=1.0">
-    <meta name="legal-evidence" content="true">
-    <meta name="snapshot-id" content="${snapshot.id}">
-    <meta name="capture-timestamp" content="${snapshot.created_at}">
-    <meta name="capture-url" content="${snapshot.url || 'unknown'}">
-    <meta name="viewport-size" content="${snapshot.viewport_width || 1920}x${snapshot.viewport_height || 1080}">
-    
-    <!-- Original head content preserved -->
-    ${existingHead}
-    
-    <!-- Legal Evidence CSS Injection -->
-    <style type="text/css" data-legal-snapshot-styles="true">
-/* ========================================= */
-/* LEGAL EVIDENCE - CAPTURED CSS STYLES     */  
-/* Snapshot ID: ${snapshot.id} */
-/* Captured: ${snapshot.created_at} */
-/* ========================================= */
-
-${decompressedSnapshot.css || '/* No CSS styles were captured */'}
-
-/* ========================================= */
-/* CRITICAL: Legal Evidence Viewport Setup  */
-/* ========================================= */
-html {
-    width: ${snapshot.viewport_width || 1920}px !important;
-    min-height: ${snapshot.viewport_height || 1080}px !important;
-    overflow-x: auto !important;
-    overflow-y: auto !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-body {
-    margin: 0 !important;
-    padding: 0 !important;
-    min-width: ${snapshot.viewport_width || 1920}px !important;
-    min-height: ${snapshot.viewport_height || 1080}px !important;
-    box-sizing: border-box !important;
-}
-
-/* Prevent any layout shifts */
-*, *::before, *::after {
-    box-sizing: border-box !important;
-}
-
-/* Legal watermark styling */
-#legal-evidence-watermark {
-    position: fixed !important;
-    top: 10px !important;
-    right: 10px !important;
-    background: rgba(255, 193, 7, 0.95) !important;
-    color: #856404 !important;
-    padding: 8px 12px !important;
-    border-radius: 4px !important;
-    font-family: 'Courier New', monospace !important;
-    font-size: 11px !important;
-    font-weight: bold !important;
-    z-index: 999999 !important;
-    pointer-events: none !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
-    border: 1px solid #ffc107 !important;
-}
-    </style>
-    
-    <title>Legal Evidence - ${snapshot.id} - ${new Date(snapshot.created_at).toLocaleDateString()}</title>
-</head>
-
-${bodyContent || '<body><h1>No content available</h1><p>The snapshot HTML content could not be rendered.</p></body>'}
-
-<!-- Legal Evidence Watermark -->
-<div id="legal-evidence-watermark">
-    ⚖️ LEGAL EVIDENCE<br>
-    ID: ${snapshot.id.substring(0, 12)}...<br>
-    Date: ${new Date(snapshot.created_at).toLocaleDateString()}<br>
-    Time: ${new Date(snapshot.created_at).toLocaleTimeString()}
-</div>
-
-<!-- Legal Evidence Script -->
-<script>
-(function() {
-    'use strict';
-    
-    // Legal evidence metadata
-    window.LEGAL_EVIDENCE = {
-        id: '${snapshot.id}',
-        capturedAt: '${snapshot.created_at}',
-        capturedUrl: '${snapshot.url || 'unknown'}',
-        viewport: {
-            width: ${snapshot.viewport_width || 1920},
-            height: ${snapshot.viewport_height || 1080}
-        },
-        htmlSize: ${snapshot.original_html_size || 0},
-        cssSize: ${snapshot.original_css_size || 0},
-        renderedAt: '${new Date().toISOString()}'
-    };
-    
-    console.log('🏛️ Legal Evidence Snapshot Rendered:', window.LEGAL_EVIDENCE);
-    
-    // Prevent any modifications to the DOM after rendering
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('✅ Legal evidence DOM ready - viewport:', window.innerWidth + 'x' + window.innerHeight);
-        
-        // Mark document as legally preserved
-        document.documentElement.setAttribute('data-legal-status', 'preserved');
-        document.documentElement.setAttribute('data-render-timestamp', new Date().toISOString());
-        
-        // Log viewport accuracy
-        const expectedWidth = ${snapshot.viewport_width || 1920};
-        const expectedHeight = ${snapshot.viewport_height || 1080};
-        const actualWidth = window.innerWidth;
-        const actualHeight = window.innerHeight;
-        
-        if (actualWidth !== expectedWidth || actualHeight !== expectedHeight) {
-            console.warn('⚠️ Viewport mismatch - Expected: ' + expectedWidth + 'x' + expectedHeight + ', Actual: ' + actualWidth + 'x' + actualHeight);
-        } else {
-            console.log('✅ Viewport match confirmed - Legal accuracy maintained');
-        }
-    });
-    
-    // Disable context menu and right-click for evidence protection
-    document.addEventListener('contextmenu', function(e) {
-        e.preventDefault();
-        console.log('Context menu disabled for legal evidence protection');
-    });
-})();
-</script>
-
-<!-- Legal Metadata Footer (Hidden) -->
-<div style="display: none;" id="legal-metadata">
-    <h3>Legal Evidence Metadata</h3>
-    <table>
-        <tr><td>Snapshot ID:</td><td>${snapshot.id}</td></tr>
-        <tr><td>Captured URL:</td><td>${snapshot.url || 'Not available'}</td></tr>
-        <tr><td>Capture Timestamp:</td><td>${snapshot.created_at}</td></tr>
-        <tr><td>Viewport Dimensions:</td><td>${snapshot.viewport_width || 1920}x${snapshot.viewport_height || 1080}px</td></tr>
-        <tr><td>HTML Content Size:</td><td>${snapshot.original_html_size || 0} characters</td></tr>
-        <tr><td>CSS Styles Size:</td><td>${snapshot.original_css_size || 0} characters</td></tr>
-        <tr><td>Rendered Timestamp:</td><td>${new Date().toISOString()}</td></tr>
-    </table>
-</div>
-
-</html>`;
-
-    // Set appropriate headers for legal evidence
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('X-Legal-Evidence', 'true');
-    res.setHeader('X-Snapshot-ID', snapshot.id);
-    res.setHeader('X-Capture-Timestamp', snapshot.created_at);
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    
-    res.send(legalSnapshotHtml);
-    
-  } catch (error) {
-    console.error('Error rendering snapshot:', error);
-    res.status(500).send(`
-      <!DOCTYPE html>
-      <html>
-      <head><title>Rendering Error</title></head>
-      <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-        <h1>❌ Rendering Error</h1>
-        <p>An error occurred while rendering the snapshot: ${error.message}</p>
-        <a href="/dashboard">← Back to Dashboard</a>
-      </body>
-      </html>
-    `);
-  }
-});
 
 // POST /snapshots/:id/screenshot - Take screenshot of rendered snapshot
 router.post('/snapshots/:id/screenshot', async (req, res) => {
@@ -385,7 +169,7 @@ router.post('/snapshots/:id/screenshot', async (req, res) => {
     const snapshotId = req.params.id;
     const options = req.body || {};
 
-    console.log(`📸 Screenshot request for snapshot ${snapshotId}`);
+    logger.info(`📸 Screenshot request for snapshot ${snapshotId}`);
 
     const result = await browserService.takeSnapshotScreenshot(snapshotId, options);
 
@@ -396,7 +180,7 @@ router.post('/snapshots/:id/screenshot', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error taking screenshot:', error);
+    logger.error('Error taking screenshot:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to capture screenshot',
@@ -429,10 +213,206 @@ router.get('/snapshots/:id/screenshot', async (req, res) => {
     res.send(screenshot.screenshot);
 
   } catch (error) {
-    console.error('Error retrieving screenshot:', error);
+    logger.error('Error retrieving screenshot:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve screenshot'
+    });
+  }
+});
+
+// GET /render/:id - Render snapshot as HTML for live DOM viewing
+router.get('/render/:id', async (req, res) => {
+  try {
+    const snapshot = await db.getSnapshot(req.params.id);
+    
+    if (!snapshot) {
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Snapshot Not Found</title></head>
+        <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+          <h1>⚠️ Snapshot Not Found</h1>
+          <p>The requested snapshot ID "${req.params.id}" could not be found.</p>
+          <a href="/dashboard">← Back to Dashboard</a>
+        </body>
+        </html>
+      `);
+    }
+
+    // Use raw snapshot data directly (no decompression needed in debug mode)
+    let decompressedSnapshot = snapshot;
+    if (snapshot.html_compressed || snapshot.css_compressed) {
+      logger.info('🗜️ Decompressing snapshot for DOM viewing:', snapshot.id);
+      decompressedSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
+    } else {
+      logger.info('🧪 DEBUG MODE: Using raw uncompressed HTML/CSS for DOM viewing:', snapshot.id);
+    }
+
+    // Check if DOM data exists
+    if (!decompressedSnapshot.html) {
+      return res.status(410).send('DOM data not available');
+    }
+
+    // DEBUGGING: Serve the absolute RAW HTML with minimal modification
+    logger.info('🧪 DEBUG: Serving completely raw HTML for DOM debugging');
+    
+    // Debug what we're actually serving
+    console.log('🧪 DEBUG: HTML length from DB:', decompressedSnapshot.html?.length || 0);
+    console.log('🧪 DEBUG: CSS length from DB:', decompressedSnapshot.css?.length || 0);
+    console.log('🧪 DEBUG: First 500 chars of HTML from DB:', decompressedSnapshot.html?.substring(0, 500) || 'NO HTML');
+    console.log('🧪 DEBUG: First 300 chars of CSS from DB:', decompressedSnapshot.css?.substring(0, 300) || 'NO CSS');
+    
+    // Just add the CSS inline to the original HTML - no other modifications
+    let rawHtml = decompressedSnapshot.html;
+    
+    // If there's CSS, try to inject it into the head
+    if (decompressedSnapshot.css) {
+      const cssStyleTag = `<style type="text/css">\n${decompressedSnapshot.css}\n</style>`;
+      
+      // Try to inject CSS into existing head
+      if (rawHtml.includes('</head>')) {
+        rawHtml = rawHtml.replace('</head>', `${cssStyleTag}\n</head>`);
+      } else if (rawHtml.includes('<head>')) {
+        rawHtml = rawHtml.replace('<head>', `<head>\n${cssStyleTag}`);
+      } else {
+        // No head tag, add CSS at the beginning
+        rawHtml = `<style>${decompressedSnapshot.css}</style>\n${rawHtml}`;
+      }
+    }
+
+    const domViewHtml = rawHtml;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(domViewHtml);
+    
+  } catch (error) {
+    logger.error('Error rendering snapshot:', error);
+    res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Rendering Error</title></head>
+      <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+        <h1>❌ Rendering Error</h1>
+        <p>An error occurred while rendering the snapshot: ${error.message}</p>
+        <a href="/dashboard">← Back to Dashboard</a>
+      </body>
+      </html>
+    `);
+  }
+});
+
+// GET /debug/:id/raw - Debug endpoint to show raw HTML as text
+router.get('/debug/:id/raw', async (req, res) => {
+  try {
+    const snapshot = await db.getSnapshot(req.params.id);
+    
+    if (!snapshot) {
+      return res.status(404).send('Snapshot not found');
+    }
+
+    let decompressedSnapshot = snapshot;
+    if (snapshot.html_compressed || snapshot.css_compressed) {
+      decompressedSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
+    }
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(`=== RAW HTML DEBUG ===\n\nHTML LENGTH: ${decompressedSnapshot.html?.length || 0}\nCSS LENGTH: ${decompressedSnapshot.css?.length || 0}\n\n=== FIRST 2000 CHARS OF HTML ===\n${decompressedSnapshot.html?.substring(0, 2000) || 'NO HTML'}\n\n=== FIRST 1000 CHARS OF CSS ===\n${decompressedSnapshot.css?.substring(0, 1000) || 'NO CSS'}`);
+  } catch (error) {
+    res.status(500).send(`Error: ${error.message}`);
+  }
+});
+
+// GET /debug/:id/html - Debug endpoint to check HTML content
+router.get('/debug/:id/html', async (req, res) => {
+  try {
+    const snapshot = await db.getSnapshot(req.params.id);
+    
+    if (!snapshot) {
+      return res.status(404).json({
+        success: false,
+        error: 'Snapshot not found'
+      });
+    }
+
+    // Use raw data or decompress snapshot if compressed
+    let decompressedSnapshot = snapshot;
+    if (snapshot.html_compressed || snapshot.css_compressed) {
+      logger.info('🗜️ Decompressing snapshot for debug:', snapshot.id);
+      decompressedSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
+    } else {
+      logger.info('🧪 DEBUG MODE: Using raw uncompressed data for debug:', snapshot.id);
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('X-Debug', 'true');
+    
+    const debugHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Debug - ${snapshot.id}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: white; }
+    .debug-info { background: #f0f0f0; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
+    .content-preview { background: #e0e0e0; padding: 15px; margin: 10px 0; border-radius: 4px; }
+    pre { white-space: pre-wrap; overflow-wrap: break-word; }
+  </style>
+</head>
+<body>
+  <div class="debug-info">
+    <h1>🔍 Snapshot Debug Information</h1>
+    <p><strong>ID:</strong> ${snapshot.id}</p>
+    <p><strong>URL:</strong> ${snapshot.url || 'Not available'}</p>
+    <p><strong>Created:</strong> ${snapshot.created_at}</p>
+    <p><strong>Has HTML:</strong> ${!!decompressedSnapshot.html}</p>
+    <p><strong>Has CSS:</strong> ${!!decompressedSnapshot.css}</p>
+    <p><strong>HTML Length:</strong> ${decompressedSnapshot.html?.length || 0}</p>
+    <p><strong>CSS Length:</strong> ${decompressedSnapshot.css?.length || 0}</p>
+  </div>
+  
+  <div class="content-preview">
+    <h3>HTML Preview (first 2000 chars):</h3>
+    <pre>${decompressedSnapshot.html?.substring(0, 2000) || 'No HTML content'}</pre>
+  </div>
+  
+  <div class="content-preview">
+    <h3>CSS Preview (first 1000 chars):</h3>
+    <pre>${decompressedSnapshot.css?.substring(0, 1000) || 'No CSS content'}</pre>
+  </div>
+</body>
+</html>`;
+
+    res.send(debugHtml);
+    
+  } catch (error) {
+    logger.error('Error in debug endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve debug information',
+      message: error.message
+    });
+  }
+});
+
+// DELETE /snapshots - Delete all snapshots
+router.delete('/snapshots', async (req, res) => {
+  try {
+    logger.info('🗑️ Deleting all snapshots from database');
+    const result = await db.deleteAllSnapshots();
+    
+    res.json({
+      success: true,
+      message: 'All snapshots deleted successfully',
+      deletedCount: result.changes,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Error deleting all snapshots:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete all snapshots',
+      message: error.message
     });
   }
 });
@@ -446,7 +426,7 @@ router.get('/browser/stats', (req, res) => {
       browserPool: stats
     });
   } catch (error) {
-    console.error('Error getting browser stats:', error);
+    logger.error('Error getting browser stats:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get browser statistics'

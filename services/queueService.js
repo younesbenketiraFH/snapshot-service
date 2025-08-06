@@ -169,33 +169,24 @@ class SnapshotQueue {
 
             await job.updateProgress(40);
 
-            // Decompress the snapshot data
-            console.log('📤 Decompressing snapshot:', snapshotId);
-            const decompressedSnapshot = await CompressionUtils.decompressSnapshot(compressedSnapshot);
+            // Use raw data or decompress the snapshot data
+            let decompressedSnapshot;
+            if (compressedSnapshot.html_compressed || compressedSnapshot.css_compressed) {
+                console.log('📤 Decompressing snapshot:', snapshotId);
+                decompressedSnapshot = await CompressionUtils.decompressSnapshot(compressedSnapshot);
+            } else {
+                console.log('🧪 DEBUG MODE: Using raw uncompressed snapshot data:', snapshotId);
+                decompressedSnapshot = compressedSnapshot;
+            }
 
             await job.updateProgress(70);
 
-            // Generate screenshot using browser service
-            console.log('📸 Generating screenshot for processed snapshot:', snapshotId);
-            try {
-                const screenshotResult = await this.browserService.takeSnapshotScreenshot(snapshotId, {
-                    format: 'webp',
-                    quality: 85,
-                    fullPage: false
-                });
-                
-                console.log('✅ Screenshot generated during queue processing:', {
-                    snapshotId,
-                    screenshotSize: screenshotResult.screenshotSize,
-                    format: screenshotResult.format
-                });
-            } catch (screenshotError) {
-                console.warn('⚠️ Screenshot generation failed during queue processing:', {
-                    snapshotId,
-                    error: screenshotError.message
-                });
-                // Continue processing even if screenshot fails
-            }
+            // DEBUGGING: Skip all browser screenshot processing to focus on DOM only
+            console.log('🧪 DEBUG: Skipping screenshot generation to isolate DOM issues');
+            let screenshotGenerated = false;
+            
+            // DOM cleanup skipped for debugging
+            console.log('🧹 DOM cleanup SKIPPED - DOM data preserved for debugging');
 
             await job.updateProgress(90);
 
@@ -211,6 +202,8 @@ class SnapshotQueue {
                 processingTimeMs: processingTime,
                 decompressedHtmlSize: decompressedSnapshot.html?.length || 0,
                 decompressedCssSize: decompressedSnapshot.css?.length || 0,
+                screenshotGenerated,
+                domDataCleaned: screenshotGenerated, // Only cleanup if screenshot succeeded
                 metadata
             };
 

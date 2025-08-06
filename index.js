@@ -3,7 +3,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
+const { logger, httpLogger } = require('./logger');
+
 const Database = require('./database');
 const SnapshotQueue = require('./services/queueService');
 const BrowserService = require('./services/browserService');
@@ -33,7 +34,7 @@ app.use(helmet({
   },
 }));
 app.use(cors());
-app.use(morgan('combined'));
+app.use(httpLogger);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -60,30 +61,30 @@ app.use('/queue', queueController);
 async function startServer() {
   try {
     await db.initialize();
-    console.log('✅ Database initialized successfully');
+    logger.info('✅ Database initialized successfully');
     
     await browserService.initialize(db);
-    console.log('✅ Browser service initialized successfully');
+    logger.info('✅ Browser service initialized successfully');
     
     await snapshotQueue.initialize(browserService, db);
-    console.log('✅ Queue system initialized successfully');
+    logger.info('✅ Queue system initialized successfully');
     
     app.listen(PORT, () => {
-      console.log(`🚀 Snapshot service running on port ${PORT}`);
-      console.log(`📊 Dashboard: http://localhost:${PORT}/dashboard`);
-      console.log(`❤️ Health check: http://localhost:${PORT}/health`);
-      console.log(`📸 Snapshots API: http://localhost:${PORT}/snapshots`);
-      console.log(`📈 Queue stats: http://localhost:${PORT}/queue/stats`);
+      logger.info(`🚀 Snapshot service running on port ${PORT}`);
+      logger.info(`📊 Dashboard: http://localhost:${PORT}/dashboard`);
+      logger.info(`❤️ Health check: http://localhost:${PORT}/health`);
+      logger.info(`📸 Snapshots API: http://localhost:${PORT}/snapshots`);
+      logger.info(`📈 Queue stats: http://localhost:${PORT}/queue/stats`);
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    logger.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 }
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('🛑 Received SIGINT, shutting down gracefully...');
+  logger.info('🛑 Received SIGINT, shutting down gracefully...');
   await snapshotQueue.shutdown();
   await browserService.shutdown();
   db.close();
@@ -91,7 +92,7 @@ process.on('SIGINT', async () => {
 });
 
 process.on('SIGTERM', async () => {
-  console.log('🛑 Received SIGTERM, shutting down gracefully...');
+  logger.info('🛑 Received SIGTERM, shutting down gracefully...');
   await snapshotQueue.shutdown();
   await browserService.shutdown();
   db.close();

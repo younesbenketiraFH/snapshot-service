@@ -1,5 +1,6 @@
 const zlib = require('zlib');
 const { promisify } = require('util');
+const { logger } = require('./logger');
 
 // Promisify compression functions
 const gzip = promisify(zlib.gzip);
@@ -53,14 +54,14 @@ class CompressionUtils {
                     throw new Error(`Unsupported compression type: ${type}`);
             }
         } catch (error) {
-            console.error(`Compression error (${type}):`, error);
+            logger.error(`Compression error (${type}):`, error);
             throw new Error(`Failed to compress with ${type}: ${error.message}`);
         }
 
         const compressedSize = compressed.length;
         const compressionRatio = ((originalSize - compressedSize) / originalSize * 100).toFixed(2);
 
-        console.log(`Compression stats (${type}):`, {
+        logger.info(`Compression stats (${type}):`, {
             originalSize,
             compressedSize,
             compressionRatio: `${compressionRatio}%`
@@ -102,7 +103,7 @@ class CompressionUtils {
                     throw new Error(`Unsupported compression type: ${type}`);
             }
         } catch (error) {
-            console.error(`Decompression error (${type}):`, error);
+            logger.error(`Decompression error (${type}):`, error);
             throw new Error(`Failed to decompress with ${type}: ${error.message}`);
         }
 
@@ -119,7 +120,7 @@ class CompressionUtils {
         const { html, css } = snapshotData;
         const startTime = Date.now();
         
-        console.log('Compressing snapshot:', {
+        logger.info('Compressing snapshot:', {
             htmlSize: html?.length || 0,
             cssSize: css?.length || 0,
             compressionType
@@ -162,7 +163,7 @@ class CompressionUtils {
                 compressionTimeMs: compressionTime
             };
 
-            console.log('Snapshot compression completed:', {
+            logger.info('Snapshot compression completed:', {
                 totalOriginalSize,
                 totalCompressedSize,
                 overallRatio: `${overallRatio}%`,
@@ -172,7 +173,7 @@ class CompressionUtils {
             return result;
 
         } catch (error) {
-            console.error('Snapshot compression failed:', error);
+            logger.error('Snapshot compression failed:', error);
             throw new Error(`Snapshot compression failed: ${error.message}`);
         }
     }
@@ -197,7 +198,7 @@ class CompressionUtils {
         
         const startTime = Date.now();
         
-        console.log('Decompressing snapshot:', {
+        logger.info('Decompressing snapshot:', {
             id: compressedSnapshot.id,
             compressionType,
             hasHtml: !!htmlData,
@@ -219,7 +220,7 @@ class CompressionUtils {
 
             const decompressionTime = Date.now() - startTime;
             
-            console.log('Snapshot decompression completed:', {
+            logger.info('Snapshot decompression completed:', {
                 id: compressedSnapshot.id,
                 decompressionTimeMs: decompressionTime,
                 htmlLength: result.html?.length || 0,
@@ -229,7 +230,9 @@ class CompressionUtils {
             return result;
 
         } catch (error) {
-            console.error('Snapshot decompression failed:', error);
+            // limit the error message to 50 characters
+            const errorMessage = error.message.length > 50 ? error.message.substring(0, 50) + '...' : error.message;
+            logger.error('Snapshot decompression failed:', errorMessage);
             throw new Error(`Snapshot decompression failed: ${error.message}`);
         }
     }
@@ -264,7 +267,7 @@ class CompressionUtils {
             stats.recommendation = stats.brotli.compressedSize < stats.gzip.compressedSize ? 'brotli' : 'gzip';
 
         } catch (error) {
-            console.error('Error getting compression stats:', error);
+            logger.error('Error getting compression stats:', error);
         }
 
         return stats;
