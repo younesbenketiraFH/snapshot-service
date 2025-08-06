@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snapshot Dashboard - Legal Evidence System</title>
+    <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+    <header class="dashboard-header">
+        <h1>📸 Snapshot Dashboard</h1>
+        <p class="legal-notice">⚖️ Legal Evidence System - Exact DOM Rendering</p>
+    </header>
+
+    <main class="dashboard-main">
+        <!-- Snapshots List View -->
+        <div id="snapshots-view" class="view-container">
+            <div class="view-header">
+                <h2>Captured Snapshots</h2>
+                <button id="refresh-btn" class="btn btn-primary">🔄 Refresh</button>
+            </div>
+            
+            <div class="filters">
+                <input type="text" id="url-filter" placeholder="Filter by URL..." class="filter-input">
+                <select id="date-filter" class="filter-select">
+                    <option value="">All dates</option>
+                    <option value="today">Today</option>
+                    <option value="week">Last week</option>
+                    <option value="month">Last month</option>
+                </select>
+                <span class="results-count" id="results-count">Loading...</span>
+            </div>
+
+            <div id="snapshots-list" class="snapshots-grid">
+                <div class="loading">Loading snapshots...</div>
+            </div>
+        </div>
+
+        <!-- Snapshot Viewer -->
+        <div id="snapshot-view" class="view-container" style="display: none;">
+            <div class="view-header">
+                <button id="back-btn" class="btn btn-secondary">← Back to List</button>
+                <h2 id="snapshot-title">Snapshot Details</h2>
+                <div class="snapshot-actions">
+                    <button id="download-btn" class="btn btn-primary">💾 Download HTML</button>
+                    <button id="fullscreen-btn" class="btn btn-secondary">🔍 Fullscreen</button>
+                    <button id="open-direct-btn" class="btn btn-secondary">🔗 Open Direct</button>
+                </div>
+            </div>
+
+            <div class="snapshot-metadata" id="snapshot-metadata">
+                <!-- Metadata will be populated here -->
+            </div>
+
+            <div class="snapshot-viewer">
+                <div class="viewport-controls">
+                    <label>
+                        <input type="checkbox" id="exact-viewport" checked> 
+                        Exact Original Viewport (<span id="original-dimensions"></span>)
+                    </label>
+                    <div class="zoom-controls">
+                        <button id="zoom-out" class="btn btn-small">−</button>
+                        <span id="zoom-level">100%</span>
+                        <button id="zoom-in" class="btn btn-small">+</button>
+                        <button id="zoom-reset" class="btn btn-small">Reset</button>
+                    </div>
+                </div>
+                
+                <!-- Critical: This iframe will render the exact snapshot -->
+                <div id="snapshot-container" class="snapshot-container">
+                    <iframe 
+                        id="snapshot-frame" 
+                        sandbox="allow-same-origin"
+                        style="border: none; width: 100%; height: 100%;"
+                        title="Legal Snapshot Evidence">
+                    </iframe>
+                </div>
+            </div>
+
+            <div class="legal-footer">
+                <p><strong>⚖️ Legal Notice:</strong> This snapshot represents the exact DOM and CSS as captured at the specified timestamp. 
+                All styles, layout, and content are preserved for legal evidence purposes.</p>
+            </div>
+        </div>
+    </main>
+
+    <script src="/dashboard.js"></script>
+</body>
+</html>

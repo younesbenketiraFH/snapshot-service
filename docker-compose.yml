@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  snapshot-service:
+    build: .
+    ports:
+      - "8847:8847"
+    environment:
+      - NODE_ENV=production
+      - PORT=8847
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_PATH=/usr/src/app/database/snapshots.db
+    volumes:
+      - snapshot_database:/usr/src/app/database
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - snapshot-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - snapshot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  redis_data:
+  snapshot_database:
+
+networks:
+  snapshot-network:
+    driver: bridge
