@@ -84,11 +84,74 @@ class BrowserService {
       throw new Error('No available browsers in pool. All browsers are busy.');
     }
 
+    // Check if browser is still healthy before using
+    const isHealthy = await this.checkBrowserHealth(availableBrowser);
+    if (!isHealthy) {
+      console.warn(`⚠️ Browser ${availableBrowser.id} is unhealthy, replacing...`);
+      await this.replaceBrowser(availableBrowser);
+    }
+
     availableBrowser.inUse = true;
     this.busyBrowsers.add(availableBrowser.id);
     
     console.log(`📱 Browser ${availableBrowser.id} acquired`);
     return availableBrowser;
+  }
+
+  async checkBrowserHealth(browserInstance) {
+    try {
+      // Quick health check - try to get browser version
+      const browser = browserInstance.browser;
+      if (!browser || !browser.isConnected()) {
+        return false;
+      }
+      
+      // Try to get browser version with timeout
+      await Promise.race([
+        browser.version(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Health check timeout')), 3000))
+      ]);
+      
+      return true;
+    } catch (error) {
+      console.warn(`🏥 Browser health check failed for ${browserInstance.id}:`, error.message);
+      return false;
+    }
+  }
+
+  async replaceBrowser(oldBrowserInstance) {
+    try {
+      const oldIndex = this.browserPool.indexOf(oldBrowserInstance);
+      if (oldIndex === -1) return;
+
+      console.log(`🔄 Replacing unhealthy browser ${oldBrowserInstance.id}...`);
+      
+      // Close old browser
+      await this.closeBrowserSafely(oldBrowserInstance);
+      
+      // Create new browser
+      const newBrowser = await puppeteer.launch(this.launchOptions);
+      const newBrowserInstance = {
+        id: oldBrowserInstance.id, // Keep same ID
+        browser: newBrowser,
+        inUse: false,
+        createdAt: new Date()
+      };
+      
+      // Replace in pool
+      this.browserPool[oldIndex] = newBrowserInstance;
+      
+      console.log(`✅ Browser ${oldBrowserInstance.id} replaced successfully`);
+      
+    } catch (error) {
+      console.error(`❌ Failed to replace browser ${oldBrowserInstance.id}:`, error);
+      // Remove the broken browser from pool if replacement fails
+      const index = this.browserPool.indexOf(oldBrowserInstance);
+      if (index > -1) {
+        this.browserPool.splice(index, 1);
+      }
+      throw error;
+    }
   }
 
   async releaseBrowser(browserInstance) {
@@ -509,25 +572,115 @@ class BrowserService {
 
   async shutdown() {
     console.log('🛑 Shutting down browser pool...');
+    console.log(`🔍 Browsers in pool: ${this.browserPool.length}, Busy browsers: ${this.busyBrowsers.size}`);
     
     try {
-      // Close all browsers
+      // First, force all busy browsers back to the pool for cleanup
       for (const browserInstance of this.browserPool) {
-        if (browserInstance.browser) {
-          await browserInstance.browser.close();
-          console.log(`🔒 Browser ${browserInstance.id} closed`);
+        if (browserInstance.inUse) {
+          console.log(`⚠️ Forcing release of busy browser: ${browserInstance.id}`);
+          browserInstance.inUse = false;
         }
       }
+      this.busyBrowsers.clear();
+
+      // Close all pages first, then browsers
+      const closePromises = [];
       
-      // Note: Database connection is managed by the main service
+      for (const browserInstance of this.browserPool) {
+        if (browserInstance.browser) {
+          closePromises.push(this.closeBrowserSafely(browserInstance));
+        }
+      }
+
+      // Wait for all browsers to close with overall timeout
+      await Promise.allSettled(closePromises);
       
+      // Clean up internal state
       this.browserPool = [];
       this.busyBrowsers.clear();
       this.isInitialized = false;
       
+      // Verification: Check for any remaining Chrome processes
+      setTimeout(() => {
+        this.verifyCleanup();
+      }, 2000);
+      
       console.log('✅ Browser pool shutdown complete');
     } catch (error) {
       console.error('❌ Error during browser pool shutdown:', error);
+    }
+  }
+
+  async verifyCleanup() {
+    try {
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+      
+      // Check for remaining Chrome processes
+      const { stdout } = await execAsync('ps aux | grep -E "(chrome|chromium)" | grep -v grep || echo "No chrome processes found"');
+      
+      if (stdout.includes('chrome') || stdout.includes('chromium')) {
+        console.warn('⚠️ CLEANUP VERIFICATION: Found remaining Chrome processes:');
+        console.warn(stdout);
+      } else {
+        console.log('✅ CLEANUP VERIFICATION: No Chrome processes found - cleanup successful');
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not verify cleanup:', error.message);
+    }
+  }
+
+  async closeBrowserSafely(browserInstance) {
+    const browserId = browserInstance.id;
+    console.log(`🔒 Closing browser ${browserId}...`);
+    
+    try {
+      const browser = browserInstance.browser;
+      
+      // Step 1: Close all pages first
+      try {
+        const pages = await Promise.race([
+          browser.pages(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout getting pages')), 3000))
+        ]);
+        
+        console.log(`📄 Closing ${pages.length} pages for browser ${browserId}`);
+        const pageClosePromises = pages.map(page => 
+          Promise.race([
+            page.close(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Page close timeout')), 2000))
+          ]).catch(err => console.warn(`⚠️ Failed to close page in ${browserId}:`, err.message))
+        );
+        
+        await Promise.allSettled(pageClosePromises);
+      } catch (error) {
+        console.warn(`⚠️ Failed to close pages for ${browserId}:`, error.message);
+      }
+
+      // Step 2: Close browser with timeout
+      await Promise.race([
+        browser.close(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Browser close timeout')), 5000))
+      ]);
+      
+      console.log(`✅ Browser ${browserId} closed successfully`);
+      
+    } catch (error) {
+      console.warn(`⚠️ Failed to close browser ${browserId} gracefully:`, error.message);
+      
+      // Step 3: Force kill the browser process if graceful close failed
+      try {
+        const process = browserInstance.browser.process();
+        if (process && !process.killed) {
+          console.log(`💀 Force killing browser process for ${browserId} (PID: ${process.pid})`);
+          process.kill('SIGKILL');
+          console.log(`💀 Browser process ${browserId} force killed`);
+        }
+      } catch (killError) {
+        console.error(`❌ Failed to force kill browser ${browserId}:`, killError.message);
+      }
     }
   }
 
