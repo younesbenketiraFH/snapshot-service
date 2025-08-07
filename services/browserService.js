@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const Database = require('../database');
 const CompressionUtils = require('../compression');
+const { logger } = require('../logger');
 
 class BrowserService {
   constructor(options = {}) {
@@ -64,10 +65,10 @@ class BrowserService {
       }
       
       this.isInitialized = true;
-      console.log(`🎯 Browser pool initialized (${this.poolSize} browsers)`);
+      logger.info(`🎯 Browser pool initialized (${this.poolSize} browsers)`);
       
     } catch (error) {
-      console.error('❌ Failed to initialize browser pool:', error);
+      logger.error('❌ Failed to initialize browser pool:', error);
       throw error;
     }
   }
@@ -87,14 +88,14 @@ class BrowserService {
     // Check if browser is still healthy before using
     const isHealthy = await this.checkBrowserHealth(availableBrowser);
     if (!isHealthy) {
-      console.warn(`⚠️ Browser ${availableBrowser.id} is unhealthy, replacing...`);
+      logger.warn(`⚠️ Browser ${availableBrowser.id} is unhealthy, replacing...`);
       await this.replaceBrowser(availableBrowser);
     }
 
     availableBrowser.inUse = true;
     this.busyBrowsers.add(availableBrowser.id);
     
-    console.log(`📱 Browser ${availableBrowser.id} acquired`);
+    logger.info(`📱 Browser ${availableBrowser.id} acquired`);
     return availableBrowser;
   }
 
@@ -114,7 +115,7 @@ class BrowserService {
       
       return true;
     } catch (error) {
-      console.warn(`🏥 Browser health check failed for ${browserInstance.id}:`, error.message);
+      logger.warn(`🏥 Browser health check failed for ${browserInstance.id}:`, error.message);
       return false;
     }
   }
@@ -124,7 +125,7 @@ class BrowserService {
       const oldIndex = this.browserPool.indexOf(oldBrowserInstance);
       if (oldIndex === -1) return;
 
-      console.log(`🔄 Replacing unhealthy browser ${oldBrowserInstance.id}...`);
+      logger.info(`🔄 Replacing unhealthy browser ${oldBrowserInstance.id}...`);
       
       // Close old browser
       await this.closeBrowserSafely(oldBrowserInstance);
@@ -141,10 +142,10 @@ class BrowserService {
       // Replace in pool
       this.browserPool[oldIndex] = newBrowserInstance;
       
-      console.log(`✅ Browser ${oldBrowserInstance.id} replaced successfully`);
+      logger.info(`✅ Browser ${oldBrowserInstance.id} replaced successfully`);
       
     } catch (error) {
-      console.error(`❌ Failed to replace browser ${oldBrowserInstance.id}:`, error);
+      logger.error(`❌ Failed to replace browser ${oldBrowserInstance.id}:`, error);
       // Remove the broken browser from pool if replacement fails
       const index = this.browserPool.indexOf(oldBrowserInstance);
       if (index > -1) {
@@ -159,7 +160,7 @@ class BrowserService {
     if (browser) {
       browser.inUse = false;
       this.busyBrowsers.delete(browser.id);
-      console.log(`📱 Browser ${browser.id} released`);
+      logger.info(`📱 Browser ${browser.id} released`);
     }
   }
 
@@ -167,7 +168,7 @@ class BrowserService {
     const browserInstance = await this.getBrowser();
     
     try {
-      console.log(`📸 Taking screenshot for snapshot ${snapshotId}`);
+      logger.info(`📸 Taking screenshot for snapshot ${snapshotId}`);
       
       // Get snapshot data from database
       const snapshot = await this.db.getSnapshot(snapshotId);
@@ -188,20 +189,22 @@ class BrowserService {
       page.on('console', msg => {
         const type = msg.type();
         const text = msg.text();
-        console.log(`🌐 Browser Console [${type.toUpperCase()}]:`, text);
+        if (type === 'error' || type === 'warning') {
+          logger.debug(`🌐 Browser Console [${type.toUpperCase()}]: ${text}`);
+        }
       });
       
       page.on('pageerror', error => {
-        console.error('🚨 Browser Page Error:', error.message);
+        logger.error('🚨 Browser Page Error:', error.message);
       });
       
       page.on('requestfailed', request => {
-        console.warn('⚠️ Browser Request Failed:', request.url(), request.failure()?.errorText);
+        logger.debug('⚠️ Browser Request Failed:', request.url(), request.failure()?.errorText);
       });
       
       page.on('response', response => {
         if (!response.ok()) {
-          console.warn('⚠️ Browser Response Error:', response.status(), response.url());
+          logger.debug('⚠️ Browser Response Error:', response.status(), response.url());
         }
       });
       
@@ -222,8 +225,8 @@ class BrowserService {
         // Create the complete HTML with CSS styles
         const fullHtml = this.buildCompleteHtml(decompressedSnapshot, snapshot);
         
-        console.log('🔧 DEBUG: Final HTML length:', fullHtml.length);
-        console.log('🔧 DEBUG: About to load HTML into page...');
+        logger.debug('🔧 DEBUG: Final HTML length:', fullHtml.length);
+        logger.debug('🔧 DEBUG: About to load HTML into page...');
         
         // Load the HTML content directly into the page
         await page.setContent(fullHtml, {
@@ -231,7 +234,7 @@ class BrowserService {
           timeout: 30000
         });
         
-        console.log('🔧 DEBUG: HTML loaded into page successfully');
+        logger.debug('🔧 DEBUG: HTML loaded into page successfully');
 
         // Wait for fonts to load (if available)
         try {
@@ -242,7 +245,7 @@ class BrowserService {
             return Promise.resolve();
           });
         } catch (e) {
-          console.warn('Font loading check failed:', e.message);
+          logger.warn('Font loading check failed:', e.message);
         }
 
         // Wait for images to load with timeout
@@ -281,7 +284,7 @@ class BrowserService {
             });
           });
         } catch (e) {
-          console.warn('Image loading check failed:', e.message);
+          logger.warn('Image loading check failed:', e.message);
         }
 
         // Simple timeout wait for rendering
@@ -290,8 +293,8 @@ class BrowserService {
         
         // DEBUG: Check page content right before screenshot
         const pageContent = await page.content();
-        console.log('🔧 DEBUG: Page content length before screenshot:', pageContent.length);
-        console.log('🔧 DEBUG: Page title:', await page.title());
+        logger.debug('🔧 DEBUG: Page content length before screenshot:', pageContent.length);
+        logger.debug('🔧 DEBUG: Page title:', await page.title());
         
         // DEBUG: Check if there's any visible content
         const hasContent = await page.evaluate(() => {
@@ -304,7 +307,7 @@ class BrowserService {
             documentReady: document.readyState
           };
         });
-        console.log('🔧 DEBUG: Page content check:', hasContent);
+        logger.debug('🔧 DEBUG: Page content check:', hasContent);
         
         // Export screenshot HTML to file for debugging
         if (process.env.DEBUG_HEADLESS === 'false') {
@@ -312,10 +315,10 @@ class BrowserService {
           const path = require('path');
           const screenshotHtmlFile = path.join('/tmp', `screenshot_html_${snapshotId}.html`);
           fs.writeFileSync(screenshotHtmlFile, pageContent);
-          console.log('🔧 DEBUG: Screenshot HTML exported to:', screenshotHtmlFile);
+          logger.debug('🔧 DEBUG: Screenshot HTML exported to:', screenshotHtmlFile);
         }
         
-        console.log('🔧 DEBUG: Taking screenshot now...');
+        logger.debug('🔧 DEBUG: Taking screenshot now...');
         
         // Take PNG screenshot (PNG format works, WebP produces blank images)
         const screenshotBuffer = await page.screenshot({
@@ -324,7 +327,7 @@ class BrowserService {
           omitBackground: false
         });
         
-        console.log('📸 Screenshot captured:', {
+        logger.info('📸 Screenshot captured:', {
           size: screenshotBuffer.length,
           format: 'png',
           viewport: `${viewportWidth}x${viewportHeight}`
@@ -336,7 +339,7 @@ class BrowserService {
           const path = require('path');
           const screenshotFile = path.join('/tmp', `debug_screenshot_${snapshotId}.png`);
           fs.writeFileSync(screenshotFile, screenshotBuffer);
-          console.log('🔧 DEBUG: Screenshot exported to:', screenshotFile);
+          logger.debug('🔧 DEBUG: Screenshot exported to:', screenshotFile);
         }
 
         // Save screenshot to database
@@ -349,7 +352,7 @@ class BrowserService {
           method: 'direct_html_load'
         });
 
-        console.log(`✅ Screenshot saved for snapshot ${snapshotId} (${screenshotBuffer.length} bytes)`);
+        logger.info(`✅ Screenshot saved for snapshot ${snapshotId} (${screenshotBuffer.length} bytes)`);
         
         return {
           snapshotId,
@@ -365,7 +368,7 @@ class BrowserService {
       }
       
     } catch (error) {
-      console.error(`❌ Error taking screenshot for ${snapshotId}:`, error);
+      logger.error(`❌ Error taking screenshot for ${snapshotId}:`, error);
       throw error;
     } finally {
       await this.releaseBrowser(browserInstance);
@@ -383,14 +386,14 @@ class BrowserService {
     const devUrlCount = (processedHtml.match(/justfly\.dev/g) || []).length;
     
     if (devUrlCount > 0) {
-      console.log(`🔧 DEBUG: Found ${devUrlCount} justfly.dev URLs, replacing with justfly.com`);
+      logger.debug(`🔧 DEBUG: Found ${devUrlCount} justfly.dev URLs, replacing with justfly.com`);
       processedHtml = processedHtml.replace(/justfly\.dev/g, 'justfly.com');
-      console.log('🔧 DEBUG: URL replacement completed');
+      logger.debug('🔧 DEBUG: URL replacement completed');
     }
 
-    console.log('🔧 DEBUG: Using processed HTML');
-    console.log('🔧 DEBUG: HTML length:', processedHtml.length);
-    console.log('🔧 DEBUG: HTML preview (first 500 chars):', processedHtml.substring(0, 500));
+    logger.debug('🔧 DEBUG: Using processed HTML');
+    logger.debug('🔧 DEBUG: HTML length:', processedHtml.length);
+    logger.debug('🔧 DEBUG: HTML preview (first 500 chars):', processedHtml.substring(0, 500));
     
     // Export HTML to file for manual inspection if in debug mode
     if (process.env.DEBUG_HEADLESS === 'false') {
@@ -398,7 +401,7 @@ class BrowserService {
       const path = require('path');
       const debugFile = path.join('/tmp', `debug_html_${originalSnapshot.id}.html`);
       fs.writeFileSync(debugFile, processedHtml);
-      console.log('🔧 DEBUG: Processed HTML exported to:', debugFile);
+      logger.debug('🔧 DEBUG: Processed HTML exported to:', debugFile);
     }
     
     return processedHtml;
@@ -423,7 +426,7 @@ class BrowserService {
       }
     }
     
-    console.log(`🔧 Alternative HTML built: ${html.length} chars, CSS injected: ${!!decompressedSnapshot.css}`);
+    logger.debug(`🔧 Alternative HTML built: ${html.length} chars, CSS injected: ${!!decompressedSnapshot.css}`);
     return html;
   }
 
@@ -454,11 +457,11 @@ class BrowserService {
 
       this.db.db.run(sql, params, function(err) {
         if (err) {
-          console.error('Error saving screenshot:', err);
+          logger.error('Error saving screenshot:', err);
           return reject(err);
         }
 
-        console.log('Screenshot saved to database:', { 
+        logger.debug('Screenshot saved to database:', { 
           snapshotId, 
           size: screenshotBuffer.length,
           changes: this.changes 
@@ -499,12 +502,12 @@ class BrowserService {
 
   async cleanupSnapshotAfterScreenshot(snapshotId) {
     try {
-      console.log(`🧹 Starting cleanup for snapshot: ${snapshotId}`);
+      logger.info(`🧹 Starting cleanup for snapshot: ${snapshotId}`);
       
       // Clean up DOM data from database (keeps metadata and screenshot)
       const result = await this.db.cleanupSnapshotDomData(snapshotId);
       
-      console.log(`✅ Snapshot cleanup completed:`, {
+      logger.info(`✅ Snapshot cleanup completed:`, {
         snapshotId,
         domDataRemoved: result.changes > 0,
         timestamp: new Date().toISOString()
@@ -518,20 +521,20 @@ class BrowserService {
       };
       
     } catch (error) {
-      console.error(`❌ Error during snapshot cleanup for ${snapshotId}:`, error);
+      logger.error(`❌ Error during snapshot cleanup for ${snapshotId}:`, error);
       throw error;
     }
   }
 
   async shutdown() {
-    console.log('🛑 Shutting down browser pool...');
-    console.log(`🔍 Browsers in pool: ${this.browserPool.length}, Busy browsers: ${this.busyBrowsers.size}`);
+    logger.info('🛑 Shutting down browser pool...');
+    logger.debug(`🔍 Browsers in pool: ${this.browserPool.length}, Busy browsers: ${this.busyBrowsers.size}`);
     
     try {
       // First, force all busy browsers back to the pool for cleanup
       for (const browserInstance of this.browserPool) {
         if (browserInstance.inUse) {
-          console.log(`⚠️ Forcing release of busy browser: ${browserInstance.id}`);
+          logger.warn(`⚠️ Forcing release of busy browser: ${browserInstance.id}`);
           browserInstance.inUse = false;
         }
       }
@@ -559,9 +562,9 @@ class BrowserService {
         this.verifyCleanup();
       }, 2000);
       
-      console.log('✅ Browser pool shutdown complete');
+      logger.info('✅ Browser pool shutdown complete');
     } catch (error) {
-      console.error('❌ Error during browser pool shutdown:', error);
+      logger.error('❌ Error during browser pool shutdown:', error);
     }
   }
 
@@ -575,19 +578,19 @@ class BrowserService {
       const { stdout } = await execAsync('ps aux | grep -E "(chrome|chromium)" | grep -v grep || echo "No chrome processes found"');
       
       if (stdout.includes('chrome') || stdout.includes('chromium')) {
-        console.warn('⚠️ CLEANUP VERIFICATION: Found remaining Chrome processes:');
-        console.warn(stdout);
+        logger.warn('⚠️ CLEANUP VERIFICATION: Found remaining Chrome processes:');
+        logger.warn(stdout);
       } else {
-        console.log('✅ CLEANUP VERIFICATION: No Chrome processes found - cleanup successful');
+        logger.info('✅ CLEANUP VERIFICATION: No Chrome processes found - cleanup successful');
       }
     } catch (error) {
-      console.warn('⚠️ Could not verify cleanup:', error.message);
+      logger.warn('⚠️ Could not verify cleanup:', error.message);
     }
   }
 
   async closeBrowserSafely(browserInstance) {
     const browserId = browserInstance.id;
-    console.log(`🔒 Closing browser ${browserId}...`);
+    logger.info(`🔒 Closing browser ${browserId}...`);
     
     try {
       const browser = browserInstance.browser;
@@ -599,17 +602,17 @@ class BrowserService {
           new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout getting pages')), 3000))
         ]);
         
-        console.log(`📄 Closing ${pages.length} pages for browser ${browserId}`);
+        logger.debug(`📄 Closing ${pages.length} pages for browser ${browserId}`);
         const pageClosePromises = pages.map(page => 
           Promise.race([
             page.close(),
             new Promise((_, reject) => setTimeout(() => reject(new Error('Page close timeout')), 2000))
-          ]).catch(err => console.warn(`⚠️ Failed to close page in ${browserId}:`, err.message))
+          ]).catch(err => logger.warn(`⚠️ Failed to close page in ${browserId}:`, err.message))
         );
         
         await Promise.allSettled(pageClosePromises);
       } catch (error) {
-        console.warn(`⚠️ Failed to close pages for ${browserId}:`, error.message);
+        logger.warn(`⚠️ Failed to close pages for ${browserId}:`, error.message);
       }
 
       // Step 2: Close browser with timeout
@@ -618,21 +621,21 @@ class BrowserService {
         new Promise((_, reject) => setTimeout(() => reject(new Error('Browser close timeout')), 5000))
       ]);
       
-      console.log(`✅ Browser ${browserId} closed successfully`);
+      logger.info(`✅ Browser ${browserId} closed successfully`);
       
     } catch (error) {
-      console.warn(`⚠️ Failed to close browser ${browserId} gracefully:`, error.message);
+      logger.warn(`⚠️ Failed to close browser ${browserId} gracefully:`, error.message);
       
       // Step 3: Force kill the browser process if graceful close failed
       try {
         const process = browserInstance.browser.process();
         if (process && !process.killed) {
-          console.log(`💀 Force killing browser process for ${browserId} (PID: ${process.pid})`);
+          logger.warn(`💀 Force killing browser process for ${browserId} (PID: ${process.pid})`);
           process.kill('SIGKILL');
-          console.log(`💀 Browser process ${browserId} force killed`);
+          logger.warn(`💀 Browser process ${browserId} force killed`);
         }
       } catch (killError) {
-        console.error(`❌ Failed to force kill browser ${browserId}:`, killError.message);
+        logger.error(`❌ Failed to force kill browser ${browserId}:`, killError.message);
       }
     }
   }
