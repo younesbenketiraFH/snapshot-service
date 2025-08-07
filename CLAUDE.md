@@ -31,7 +31,11 @@ This is a **legal evidence DOM snapshot service** designed for capturing and pre
 - **Browser Service**: Decompresses snapshots and loads them directly into browsers (not URLs)
 - **Database Field Compatibility**: Handles both JavaScript camelCase and SQL snake_case naming
 - **Resource Optimization**: Single shared database and browser pool across all services
-- **Simplified Logging**: Cleaner startup logs without redundant information
+- **Optimized Rendering**: Removed debug logging from browser service for production performance
+- **Clean Screenshot Flow**: Streamlined screenshot generation with minimal logging overhead
+- **Enhanced Form State Capture**: DOM snapshots now preserve current form values, radio selections, dropdown choices
+- **Credit Card Security**: Automatic masking of credit card numbers and CVV codes in captured DOM
+- **Legal Evidence Accuracy**: Captured DOM reflects exact user interactions and form states
 
 
 ## Architecture
@@ -125,10 +129,10 @@ Generates a screenshot of the snapshot by loading decompressed DOM directly into
 ```
 
 #### `GET /snapshots/:id/screenshot`
-Retrieves the screenshot image (WebP format).
+Retrieves the screenshot image (PNG format).
 
 **Response Headers:**
-- `Content-Type`: image/webp
+- `Content-Type`: image/png
 - `X-Screenshot-Width`: Screenshot width
 - `X-Screenshot-Height`: Screenshot height
 - `X-Screenshot-Taken-At`: Generation timestamp
@@ -181,8 +185,8 @@ CREATE TABLE snapshots (
   options TEXT,                               -- JSON metadata
   queue_job_id TEXT,
   processing_status TEXT DEFAULT 'pending',
-  screenshot BLOB,                            -- WebP screenshot data
-  screenshot_format TEXT,                     -- Usually 'webp'
+  screenshot BLOB,                            -- PNG screenshot data
+  screenshot_format TEXT,                     -- Usually 'png'
   screenshot_width INTEGER,
   screenshot_height INTEGER,
   screenshot_size INTEGER,
@@ -211,8 +215,9 @@ CREATE TABLE snapshots (
 1. **Snapshot Received** → Compressed and stored in database
 2. **Queue Processing** → Decompresses snapshot data
 3. **Browser Loading** → Loads HTML/CSS directly into Puppeteer (not via URL)
-4. **Screenshot Capture** → Takes WebP screenshot at original viewport size
-5. **Database Storage** → Saves screenshot BLOB with metadata
+4. **Content Rendering** → Waits for fonts, images, and DOM rendering (12s timeout)
+5. **Screenshot Capture** → Takes PNG screenshot at original viewport size
+6. **Database Storage** → Saves screenshot BLOB with metadata
 
 ### Compression System
 - **Algorithms**: Brotli (default) and Gzip fallback
@@ -276,20 +281,40 @@ npm install
 
 ## Client Integration
 
-### SnapshotHelperV3.js.php
-Located at: `/Users/younesbenketira/Code/travel/solar/include/Mv/Ota/OtaCommon/View/Partials/Js/SnapshotHelperV3.js.php`
+### SnapshotManager.js.php
+Located at: `/Users/younesbenketira/Code/travel/solar/include/Mv/Ota/OtaCommon/View/Partials/Js/SnapshotManager.js.php`
+
+**Enhanced Features:**
+- **Form State Preservation**: Captures current values of all form elements
+- **Security**: Automatic masking of credit card numbers and CVV codes
+- **Complete DOM**: Exact representation of user interactions
 
 **Usage:**
 ```javascript
-// Capture full page
-SnapshotHelper.takeSnapshot();
+// Capture full page with current form state
+window.SnapshotManager.takeSnapshot();
 
-// With metadata
-SnapshotHelper.takeSnapshot(null, {
+// Capture specific element (e.g., checkout form)
+window.SnapshotManager.takeSnapshot('#checkout-form');
+
+// With metadata options
+window.SnapshotManager.takeSnapshot(null, {
     type: 'checkout_confirmation',
     booking_id: 'ABC123'
 });
 ```
+
+**Form State Preservation Details:**
+- **Text Inputs**: Current `value` preserved as attribute
+- **Radio Buttons**: Current `checked` state preserved  
+- **Checkboxes**: Current `checked` state preserved
+- **Dropdowns**: Current `selected` option preserved
+- **Textareas**: Current content preserved
+
+**Security Features:**
+- **Credit Card Masking**: Middle digits replaced with asterisks (keeps first 6, last 4)
+- **CVV Masking**: Completely masked with asterisks
+- **Auto-Detection**: Identifies sensitive fields by ID, name, class, or placeholder
 
 ### Integration Points
 - **Checkout Pages**: Automatic capture on page load
@@ -317,7 +342,7 @@ Docker Network: snapshot-network
 - **1:1 Viewport**: Exact original viewport dimensions preserved
 - **CSS Accuracy**: All inline styles, computed styles, and external CSS captured
 - **Font Rendering**: Consistent font rendering across environments
-- **Screenshot Fidelity**: WebP screenshots at original resolution
+- **Screenshot Fidelity**: PNG screenshots at original resolution for maximum quality
 
 ### Metadata Preservation  
 - **Capture Timestamp**: Precise capture time
@@ -344,7 +369,7 @@ Docker Network: snapshot-network
 ## File Locations
 
 - **Service Root**: `/Users/younesbenketira/Code/travel/snapshot-service/`
-- **Client Helper**: `/Users/younesbenketira/Code/travel/solar/include/Mv/Ota/OtaCommon/View/Partials/Js/SnapshotHelperV3.js.php`
+- **Client Helper**: `/Users/younesbenketira/Code/travel/solar/include/Mv/Ota/OtaCommon/View/Partials/Js/SnapshotManager.js.php`
 - **Integration Examples**: Various checkout view files in solar/include/Mv/Ota/*/App/Checkout/View/
 
-Last Updated: 2025-08-06
+Last Updated: 2025-08-07
