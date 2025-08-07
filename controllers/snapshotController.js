@@ -365,4 +365,15 @@ router.get('/browser/stats', (req, res) => {
   }
 });
 
+// GET /db/stats - Get database usage stats
+router.get('/db/stats', async (req, res) => {
+  try {
+    const stats = await db.getDatabaseStats();
+    res.json({ success: true, stats });
+  } catch (error) {
+    logger.error('Error getting database stats:', error);
+    res.status(500).json({ success: false, error: 'Failed to get database stats' });
+  }
+});
+
 module.exports = router;

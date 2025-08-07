@@ -32,9 +32,6 @@ class SnapshotDashboard {
         
         // Tab controls
         document.getElementById('screenshot-tab').addEventListener('click', () => this.showScreenshotTab());
-        document.getElementById('dom-tab').addEventListener('click', () => this.showDomTab());
-        document.getElementById('html-tab').addEventListener('click', () => this.showHtmlTab());
-        document.getElementById('css-tab').addEventListener('click', () => this.showCssTab());
         document.getElementById('screenshot-data-tab').addEventListener('click', () => this.showScreenshotDataTab());
         
         // Replay screenshot button (will be bound when snapshot is loaded)
@@ -208,21 +205,6 @@ class SnapshotDashboard {
         this.loadScreenshot();
     }
 
-    showDomTab() {
-        this.setActiveTab('dom');
-        this.loadDomPreview();
-    }
-
-    showHtmlTab() {
-        this.setActiveTab('html');
-        this.loadHtmlData();
-    }
-
-    showCssTab() {
-        this.setActiveTab('css');
-        this.loadCssData();
-    }
-
     showScreenshotDataTab() {
         this.setActiveTab('screenshot-data');
         this.loadScreenshotData();
@@ -230,7 +212,7 @@ class SnapshotDashboard {
 
     setActiveTab(activeTabName) {
         // Update tab buttons
-        const tabs = ['screenshot', 'dom', 'html', 'css', 'screenshot-data'];
+        const tabs = ['screenshot', 'screenshot-data'];
         tabs.forEach(tab => {
             const tabBtn = document.getElementById(`${tab}-tab`);
             const tabContent = document.getElementById(`${tab}-content`);
@@ -502,49 +484,6 @@ class SnapshotDashboard {
         }
     }
 
-    async loadDomPreview() {
-        const snapshot = this.currentSnapshot;
-        const domStatus = document.getElementById('dom-status');
-        const domFrame = document.getElementById('dom-frame');
-        
-        try {
-            domStatus.innerHTML = '<div class="loading">Loading DOM preview...</div>';
-            domFrame.style.display = 'none';
-            
-            console.log('🌐 Loading DOM preview for snapshot:', snapshot.id);
-            
-            // Load the DOM preview directly in iframe
-            const domUrl = `/render/${snapshot.id}`;
-            
-            domFrame.onload = () => {
-                console.log('✅ DOM preview loaded successfully');
-                domStatus.style.display = 'none';
-            };
-            
-            domFrame.onerror = (error) => {
-                console.error('❌ DOM preview failed to load:', error);
-                domStatus.innerHTML = `
-                    <div class="error">
-                        <p>❌ Failed to load DOM preview</p>
-                        <p>DOM data may have been cleaned up</p>
-                    </div>
-                `;
-            };
-            
-            domFrame.src = domUrl;
-            domFrame.style.display = 'block';
-            
-        } catch (error) {
-            console.error('Error loading DOM preview:', error);
-            domStatus.innerHTML = `
-                <div class="error">
-                    <p>❌ Error loading DOM preview</p>
-                    <p>DOM data may have been cleaned up</p>
-                </div>
-            `;
-        }
-    }
-
     async loadScreenshotData() {
         if (!this.currentSnapshot?.id) return;
 
@@ -700,129 +639,7 @@ First 32 bytes: ${this.bytesToHex(uint8Array.slice(0, 32))}`;
         return `Unknown (${this.bytesToHex(bytes.slice(0, 4))})`;
     }
     
-    async loadHtmlData() {
-        if (!this.currentSnapshot?.id) return;
-
-        try {
-            document.getElementById('html-raw-content').innerHTML = '<code>Loading HTML data...</code>';
-            document.getElementById('html-size-info').textContent = 'Loading...';
-
-            const response = await fetch(`/snapshots/${this.currentSnapshot.id}`);
-            const data = await response.json();
-            
-            if (data.success && data.snapshot && data.snapshot.html) {
-                const htmlContent = data.snapshot.html;
-                const sizeInfo = `${(htmlContent.length / 1024).toFixed(2)} KB (${htmlContent.length.toLocaleString()} characters)`;
-                
-                // Display size info
-                document.getElementById('html-size-info').textContent = sizeInfo;
-                
-                // Display HTML content with proper escaping
-                const escapedHtml = this.escapeHtml(htmlContent);
-                document.getElementById('html-raw-content').innerHTML = `<code>${escapedHtml}</code>`;
-                document.getElementById('html-raw-content').classList.add('html-content');
-                
-                // Bind copy and download buttons
-                this.bindRawDataControls('html', htmlContent);
-                
-            } else {
-                document.getElementById('html-raw-content').innerHTML = 
-                    '<code class="error">No HTML data available (may have been cleaned up)</code>';
-                document.getElementById('html-size-info').textContent = 'N/A';
-            }
-            
-        } catch (error) {
-            console.error('Error loading HTML data:', error);
-            document.getElementById('html-raw-content').innerHTML = 
-                '<code class="error">Error loading HTML data</code>';
-            document.getElementById('html-size-info').textContent = 'Error';
-        }
-    }
-
-    async loadCssData() {
-        if (!this.currentSnapshot?.id) return;
-
-        try {
-            document.getElementById('css-raw-content').innerHTML = '<code>Loading CSS data...</code>';
-            document.getElementById('css-size-info').textContent = 'Loading...';
-
-            const response = await fetch(`/snapshots/${this.currentSnapshot.id}`);
-            const data = await response.json();
-            
-            if (data.success && data.snapshot && data.snapshot.css) {
-                const cssContent = data.snapshot.css;
-                const sizeInfo = `${(cssContent.length / 1024).toFixed(2)} KB (${cssContent.length.toLocaleString()} characters)`;
-                
-                // Display size info
-                document.getElementById('css-size-info').textContent = sizeInfo;
-                
-                // Display CSS content with proper escaping
-                const escapedCss = this.escapeHtml(cssContent);
-                document.getElementById('css-raw-content').innerHTML = `<code>${escapedCss}</code>`;
-                document.getElementById('css-raw-content').classList.add('css-content');
-                
-                // Bind copy and download buttons
-                this.bindRawDataControls('css', cssContent);
-                
-            } else {
-                document.getElementById('css-raw-content').innerHTML = 
-                    '<code class="error">No CSS data available (may have been cleaned up)</code>';
-                document.getElementById('css-size-info').textContent = 'N/A';
-            }
-            
-        } catch (error) {
-            console.error('Error loading CSS data:', error);
-            document.getElementById('css-raw-content').innerHTML = 
-                '<code class="error">Error loading CSS data</code>';
-            document.getElementById('css-size-info').textContent = 'Error';
-        }
-    }
-
-    bindRawDataControls(type, content) {
-        // Bind copy button
-        const copyBtn = document.getElementById(`copy-${type}-btn`);
-        if (copyBtn) {
-            copyBtn.onclick = () => {
-                navigator.clipboard.writeText(content).then(() => {
-                    const originalText = copyBtn.textContent;
-                    copyBtn.textContent = '✅ Copied!';
-                    setTimeout(() => {
-                        copyBtn.textContent = originalText;
-                    }, 2000);
-                }).catch(err => {
-                    console.error('Failed to copy:', err);
-                    copyBtn.textContent = '❌ Failed';
-                    setTimeout(() => {
-                        copyBtn.textContent = `📋 Copy ${type.toUpperCase()}`;
-                    }, 2000);
-                });
-            };
-        }
-
-        // Bind download button
-        const downloadBtn = document.getElementById(`download-${type}-btn`);
-        if (downloadBtn) {
-            downloadBtn.onclick = () => {
-                const blob = new Blob([content], { 
-                    type: type === 'html' ? 'text/html' : 'text/css' 
-                });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `snapshot-${this.currentSnapshot.id}.${type}`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            };
-        }
-    }
-
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
+    
 
     bindReplayScreenshotButton() {
         const replayBtn = document.getElementById('replay-screenshot-btn');

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Queue View - Snapshot Service</title>
+  <link rel="stylesheet" href="/dashboard.css" />
+  <style>
+    /* Queue page overrides */
+    #waiting, #active, #completed, #failed, #delayed {
+      height: auto;
+      background: transparent;
+      padding: 0.5rem 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .job-card {
+      border: 1px solid #e9ecef;
+      border-radius: 10px;
+      padding: 0.75rem 0.9rem;
+      background: #fff;
+      display: inline-block;
+      max-width: 100%;
+      width: min(360px, 100%);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    }
+    .job-header {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.95rem;
+      color: #2c3e50;
+      margin-bottom: 0.4rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .job-name { color: #6c757d; }
+    .job-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      font-size: 0.82rem;
+      color: #495057;
+    }
+    .job-chip {
+      background: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+    .job-chip.error { color: #dc3545; border-color: #f1b0b7; background: #fff5f6; }
+  </style>
+</head>
+<body>
+  <header class="dashboard-header">
+    <h1>📦 Queue View</h1>
+    <p class="legal-notice">BullMQ job states</p>
+  </header>
+
+  <main class="dashboard-main view-container" style="padding: 1rem 2rem;">
+    <div class="view-header">
+      <a class="btn btn-secondary" href="/dashboard">← Back to Dashboard</a>
+      <a class="btn btn-primary" href="/db">Database View</a>
+      <button id="refresh" class="btn btn-primary">🔄 Refresh</button>
+    </div>
+
+    <section style="margin-top: 1rem;">
+      <h2>Queue Over Time</h2>
+      <div id="chart-legend" style="display:flex; gap:10px; flex-wrap:wrap; margin: 0.5rem 0;"></div>
+      <div id="chart-container" style="width:100%; overflow-x:auto; border:1px solid #e9ecef; border-radius:8px; background:#fff;">
+        <svg id="queue-chart-svg" width="100%" height="240" preserveAspectRatio="none"></svg>
+      </div>
+    </section>
+
+    <section class="metadata-grid" id="queue-stats" style="margin-top: 1rem;">
+      <div class="loading">Loading queue stats...</div>
+    </section>
+
+    <section style="margin-top: 2rem;">
+      <h2>Waiting</h2>
+      <div id="waiting" class="raw-data-container"></div>
+    </section>
+    <section style="margin-top: 2rem;">
+      <h2>Active</h2>
+      <div id="active" class="raw-data-container"></div>
+    </section>
+    <section style="margin-top: 2rem;">
+      <h2>Completed</h2>
+      <div id="completed" class="raw-data-container"></div>
+    </section>
+    <section style="margin-top: 2rem;">
+      <h2>Failed</h2>
+      <div id="failed" class="raw-data-container"></div>
+    </section>
+    <section style="margin-top: 2rem;">
+      <h2>Delayed</h2>
+      <div id="delayed" class="raw-data-container"></div>
+    </section>
+  </main>
+
+  <script src="/queue.js"></script>
+</body>
+</html>
+

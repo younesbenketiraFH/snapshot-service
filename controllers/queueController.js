@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { logger } = require('../logger');
 
 // Queue controller will receive dependencies via middleware
 let snapshotQueue;
@@ -41,6 +42,18 @@ router.get('/job/:jobId', async (req, res) => {
       success: false,
       error: 'Failed to get job status'
     });
+  }
+});
+
+// GET /queue/jobs - List jobs by state
+router.get('/jobs', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 100;
+    const jobs = await snapshotQueue.listJobs({ limit });
+    res.json({ success: true, ...jobs });
+  } catch (error) {
+    logger.error('Error listing jobs:', error);
+    res.status(500).json({ success: false, error: 'Failed to list jobs' });
   }
 });
 

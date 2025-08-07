@@ -219,6 +219,30 @@ class Database {
     });
   }
 
+  async getDatabaseStats() {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        SELECT 
+          COUNT(*) AS total_snapshots,
+          SUM(length(html)) AS total_html_bytes,
+          SUM(length(css)) AS total_css_bytes,
+          SUM(CASE WHEN screenshot IS NOT NULL THEN 1 ELSE 0 END) AS screenshots_count,
+          SUM(CASE WHEN screenshot IS NOT NULL THEN length(screenshot) ELSE 0 END) AS total_screenshot_bytes,
+          MIN(created_at) AS oldest,
+          MAX(created_at) AS newest
+        FROM snapshots
+      `;
+
+      this.db.get(sql, [], (err, row) => {
+        if (err) {
+          logger.error('Error retrieving database stats:', err);
+          return reject(err);
+        }
+        resolve(row);
+      });
+    });
+  }
+
   async deleteAllSnapshots() {
     return new Promise((resolve, reject) => {
       const sql = 'DELETE FROM snapshots';

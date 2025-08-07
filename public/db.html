@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Database View - Snapshot Service</title>
+  <link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+  <header class="dashboard-header">
+    <h1>📚 Database View</h1>
+    <p class="legal-notice">Storage overview and totals</p>
+  </header>
+
+  <main class="dashboard-main view-container" style="padding: 1rem 2rem;">
+    <div class="view-header">
+      <a class="btn btn-secondary" href="/dashboard">← Back to Dashboard</a>
+      <a class="btn btn-primary" href="/queue">View Queue</a>
+    </div>
+
+    <section class="metadata-grid" id="db-stats" style="margin-top: 1rem;">
+      <div class="loading">Loading database stats...</div>
+    </section>
+
+    <section style="margin-top: 2rem;">
+      <h2>Recent Snapshots</h2>
+      <div id="recent-snapshots" class="snapshots-grid">
+        <div class="loading">Loading snapshots...</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/db.js"></script>
+</body>
+</html>
+

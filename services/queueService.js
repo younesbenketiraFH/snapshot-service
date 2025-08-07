@@ -3,6 +3,7 @@ const Redis = require('ioredis');
 const Database = require('../database');
 const CompressionUtils = require('../compression');
 const BrowserService = require('./browserService');
+const { logger } = require('../logger');
 
 class SnapshotQueue {
     constructor(redisUrl = null) {
@@ -29,7 +30,7 @@ class SnapshotQueue {
         try {
             // Test Redis connection
             await this.redisConnection.ping();
-            console.log('✅ Redis connection established');
+            logger.info('✅ Redis connection established');
             
             // Use shared database if provided
             if (db) {
@@ -46,13 +47,15 @@ class SnapshotQueue {
             }
             
             // Create BullMQ queue
+            const defaultAttempts = parseInt(process.env.QUEUE_ATTEMPTS || '', 10) || 5;
+            const defaultBackoffMs = parseInt(process.env.QUEUE_BACKOFF_MS || '', 10) || 5000;
             this.queue = new Queue(this.queueName, {
                 connection: this.redisConnection.duplicate(),
                 defaultJobOptions: {
-                    attempts: 3,
+                    attempts: defaultAttempts,
                     backoff: {
                         type: 'exponential',
-                        delay: 2000,
+                        delay: defaultBackoffMs,
                     },
                     removeOnComplete: 100, // Keep last 100 completed jobs
                     removeOnFail: 50,      // Keep last 50 failed jobs
@@ -60,20 +63,21 @@ class SnapshotQueue {
             });
 
             // Create BullMQ worker
+            const workerConcurrency = parseInt(process.env.QUEUE_CONCURRENCY || '', 10) || (this.browserService?.poolSize || 3);
             this.worker = new Worker(this.queueName, this.processSnapshotJob.bind(this), {
                 connection: this.redisConnection.duplicate(),
-                concurrency: 5, // Process up to 5 jobs concurrently
+                concurrency: workerConcurrency, // Align concurrency with browser pool size by default
                 removeOnComplete: 100,
                 removeOnFail: 50,
             });
 
             // Worker event listeners
             this.worker.on('ready', () => {
-                console.log('🔄 Snapshot worker is ready');
+                logger.info('🔄 Snapshot worker is ready');
             });
 
             this.worker.on('completed', (job) => {
-                console.log('✅ Snapshot job completed:', {
+                logger.info('✅ Snapshot job completed:', {
                     id: job.id,
                     snapshotId: job.data.snapshotId,
                     duration: `${job.finishedOn - job.processedOn}ms`
@@ -81,7 +85,7 @@ class SnapshotQueue {
             });
 
             this.worker.on('failed', (job, err) => {
-                console.error('❌ Snapshot job failed:', {
+                logger.error('❌ Snapshot job failed:', {
                     id: job.id,
                     snapshotId: job.data.snapshotId,
                     error: err.message,
@@ -90,17 +94,17 @@ class SnapshotQueue {
             });
 
             this.worker.on('error', (err) => {
-                console.error('🔥 Worker error:', err);
+                logger.error('🔥 Worker error:', err);
             });
 
             // Queue event listeners
             this.queue.on('error', (err) => {
-                console.error('🔥 Queue error:', err);
+                logger.error('🔥 Queue error:', err);
             });
 
             
         } catch (error) {
-            console.error('❌ Failed to initialize queue system:', error);
+            logger.error('❌ Failed to initialize queue system:', error);
             throw error;
         }
     }
@@ -119,7 +123,7 @@ class SnapshotQueue {
 
             const job = await this.queue.add('process-snapshot', jobData, jobOptions);
             
-            console.log('📝 Added snapshot job to queue:', {
+            logger.info('📝 Added snapshot job to queue:', {
                 jobId: job.id,
                 snapshotId: jobData.snapshotId,
                 priority: jobOptions.priority
@@ -132,7 +136,7 @@ class SnapshotQueue {
             };
             
         } catch (error) {
-            console.error('❌ Failed to add snapshot job:', error);
+            logger.error('❌ Failed to add snapshot job:', error);
             throw new Error(`Failed to queue snapshot job: ${error.message}`);
         }
     }
@@ -146,7 +150,7 @@ class SnapshotQueue {
         const { snapshotId, metadata } = job.data;
         const startTime = Date.now();
         
-        console.log('🔄 Processing snapshot job:', {
+        logger.info('🔄 Processing snapshot job:', {
             jobId: job.id,
             snapshotId,
             attempt: job.attemptsMade + 1
@@ -176,16 +180,21 @@ class SnapshotQueue {
 
             // Generate screenshot
             let screenshotGenerated = false;
+            let domDataCleaned = false;
+            // Attempt screenshot. On failure, let error bubble so BullMQ retries with backoff
+            const screenshotResult = await this.browserService.takeSnapshotScreenshot(snapshotId);
+            screenshotGenerated = true;
+            logger.info('✅ Screenshot generated:', screenshotResult.snapshotId);
+
+            // Clean DOM data after successful screenshot
             try {
-                const screenshotResult = await this.browserService.takeSnapshotScreenshot(snapshotId);
-                screenshotGenerated = true;
-                console.log('✅ Screenshot generated:', screenshotResult.snapshotId);
-            } catch (screenshotError) {
-                console.error('❌ Screenshot generation failed:', screenshotError.message);
-                screenshotGenerated = false;
+                const cleanupResult = await this.browserService.cleanupSnapshotAfterScreenshot(snapshotId);
+                domDataCleaned = !!cleanupResult?.domDataRemoved;
+            } catch (cleanupError) {
+                logger.warn(`⚠️ DOM cleanup failed for ${snapshotId}:`, cleanupError.message);
             }
-            
-            // DOM data preserved in database for dashboard viewing
+
+            // DOM data is cleaned immediately above on success
 
             await job.updateProgress(90);
 
@@ -202,15 +211,15 @@ class SnapshotQueue {
                 decompressedHtmlSize: decompressedSnapshot.html?.length || 0,
                 decompressedCssSize: decompressedSnapshot.css?.length || 0,
                 screenshotGenerated,
-                domDataCleaned: screenshotGenerated, // Only cleanup if screenshot succeeded
+                domDataCleaned,
                 metadata
             };
 
-            console.log('✅ Snapshot processing completed:', result);
+            logger.info('✅ Snapshot processing completed:', result);
             return result;
 
         } catch (error) {
-            console.error('❌ Snapshot processing failed:', {
+            logger.error('❌ Snapshot processing failed:', {
                 jobId: job.id,
                 snapshotId,
                 error: error.message
@@ -220,7 +229,7 @@ class SnapshotQueue {
             try {
                 await this.db.updateSnapshotStatus(snapshotId, 'failed');
             } catch (dbError) {
-                console.error('❌ Failed to update snapshot status to failed:', dbError);
+                logger.error('❌ Failed to update snapshot status to failed:', dbError);
             }
 
             throw error;
@@ -233,20 +242,24 @@ class SnapshotQueue {
      */
     async getQueueStats() {
         try {
-            const waiting = await this.queue.getWaiting();
-            const active = await this.queue.getActive();
-            const completed = await this.queue.getCompleted();
-            const failed = await this.queue.getFailed();
+            const [waiting, active, completed, failed, delayed] = await Promise.all([
+                this.queue.getWaiting(),
+                this.queue.getActive(),
+                this.queue.getCompleted(),
+                this.queue.getFailed(),
+                this.queue.getDelayed()
+            ]);
 
             return {
                 waiting: waiting.length,
                 active: active.length,
                 completed: completed.length,
                 failed: failed.length,
-                total: waiting.length + active.length + completed.length + failed.length
+                delayed: delayed.length,
+                total: waiting.length + active.length + completed.length + failed.length + delayed.length
             };
         } catch (error) {
-            console.error('Error getting queue stats:', error);
+            logger.error('Error getting queue stats:', error);
             return null;
         }
     }
@@ -276,8 +289,46 @@ class SnapshotQueue {
                 attemptsMade: job.attemptsMade
             };
         } catch (error) {
-            console.error('Error getting job status:', error);
+            logger.error('Error getting job status:', error);
             return { status: 'error', error: error.message };
+        }
+    }
+
+    /**
+     * List jobs grouped by state
+     */
+    async listJobs({ limit = 100 } = {}) {
+        try {
+            const [waiting, active, completed, failed, delayed] = await Promise.all([
+                this.queue.getWaiting(0, limit - 1),
+                this.queue.getActive(0, limit - 1),
+                this.queue.getCompleted(0, limit - 1),
+                this.queue.getFailed(0, limit - 1),
+                this.queue.getDelayed(0, limit - 1)
+            ]);
+
+            const mapJob = (job) => ({
+                id: job.id,
+                name: job.name,
+                data: job.data,
+                progress: job.progress,
+                attemptsMade: job.attemptsMade,
+                timestamp: job.timestamp,
+                processedOn: job.processedOn,
+                finishedOn: job.finishedOn,
+                failedReason: job.failedReason
+            });
+
+            return {
+                waiting: waiting.map(mapJob),
+                active: active.map(mapJob),
+                completed: completed.map(mapJob),
+                failed: failed.map(mapJob),
+                delayed: delayed.map(mapJob)
+            };
+        } catch (error) {
+            logger.error('Error listing jobs:', error);
+            return { waiting: [], active: [], completed: [], failed: [], delayed: [] };
         }
     }
 
@@ -289,9 +340,9 @@ class SnapshotQueue {
         try {
             await this.queue.clean(maxAge, 100, 'completed');
             await this.queue.clean(maxAge, 50, 'failed');
-            console.log('🧹 Queue cleanup completed');
+            logger.info('🧹 Queue cleanup completed');
         } catch (error) {
-            console.error('❌ Queue cleanup failed:', error);
+            logger.error('❌ Queue cleanup failed:', error);
         }
     }
 
@@ -299,28 +350,28 @@ class SnapshotQueue {
      * Gracefully shutdown the queue system
      */
     async shutdown() {
-        console.log('🛑 Shutting down queue system...');
+        logger.info('🛑 Shutting down queue system...');
         
         try {
             if (this.worker) {
                 await this.worker.close();
-                console.log('✅ Worker closed');
+                logger.info('✅ Worker closed');
             }
             
             if (this.queue) {
                 await this.queue.close();
-                console.log('✅ Queue closed');
+                logger.info('✅ Queue closed');
             }
             
             if (this.redisConnection) {
                 this.redisConnection.disconnect();
-                console.log('✅ Redis connection closed');
+                logger.info('✅ Redis connection closed');
             }
             
             // Note: Browser service and database shutdown are handled by the main service
             
         } catch (error) {
-            console.error('❌ Error during shutdown:', error);
+            logger.error('❌ Error during shutdown:', error);
         }
     }
 }
