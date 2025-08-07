@@ -12,7 +12,7 @@ class BrowserService {
     
     // Browser launch options optimized for Docker/Alpine
     this.launchOptions = {
-      headless: true,
+      headless: process.env.DEBUG_HEADLESS !== 'false', // Set DEBUG_HEADLESS=false for visual debugging
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: [
         '--no-sandbox',
@@ -138,14 +138,69 @@ class BrowserService {
         // Create the complete HTML with CSS styles
         const fullHtml = this.buildCompleteHtml(decompressedSnapshot, snapshot);
         
+        console.log('🔧 DEBUG: Final HTML length:', fullHtml.length);
+        console.log('🔧 DEBUG: About to load HTML into page...');
+        
         // Load the HTML content directly into the page
         await page.setContent(fullHtml, {
-          waitUntil: 'networkidle0', // Wait for network requests to finish
-          timeout: 60000 // Increased timeout for external resources
+          waitUntil: 'domcontentloaded', // Changed from networkidle0 for faster debugging
+          timeout: 30000 // Reduced timeout for debugging
         });
+        
+        console.log('🔧 DEBUG: HTML loaded into page successfully');
 
+        // Wait for fonts to load (if available)
+        try {
+          await page.evaluate(() => {
+            if (document.fonts && document.fonts.ready) {
+              return document.fonts.ready;
+            }
+            return Promise.resolve();
+          });
+        } catch (e) {
+          console.warn('Font loading check failed:', e.message);
+        }
 
-        // Wait for external resources to load and content to settle
+        // Wait for images to load with timeout
+        try {
+          await page.evaluate(() => {
+            return new Promise(resolve => {
+              const images = Array.from(document.querySelectorAll('img'));
+              if (images.length === 0) {
+                resolve();
+                return;
+              }
+              
+              let loadedImages = 0;
+              const totalImages = images.length;
+              
+              const checkComplete = () => {
+                loadedImages++;
+                if (loadedImages >= totalImages) {
+                  resolve();
+                }
+              };
+              
+              images.forEach(img => {
+                if (img.complete) {
+                  checkComplete();
+                } else {
+                  img.onload = checkComplete;
+                  img.onerror = checkComplete;
+                  // Force timeout per image
+                  setTimeout(checkComplete, 3000);
+                }
+              });
+              
+              // Overall timeout
+              setTimeout(resolve, 10000);
+            });
+          });
+        } catch (e) {
+          console.warn('Image loading check failed:', e.message);
+        }
+
+        // Simple timeout wait for rendering
         await new Promise(r => setTimeout(r, 3000));
         
         // Debug: Check what's actually visible on the page
@@ -226,6 +281,35 @@ class BrowserService {
         
         console.log('🔍 CSS Debug Info:', cssDebug);
         
+        // DEBUG: Check page content right before screenshot
+        const pageContent = await page.content();
+        console.log('🔧 DEBUG: Page content length before screenshot:', pageContent.length);
+        console.log('🔧 DEBUG: Page title:', await page.title());
+        
+        // DEBUG: Check if there's any visible content
+        const hasContent = await page.evaluate(() => {
+          const body = document.body;
+          const allElements = document.querySelectorAll('*');
+          return {
+            bodyExists: !!body,
+            bodyInnerText: body ? body.innerText?.substring(0, 200) : 'no body',
+            totalElements: allElements.length,
+            documentReady: document.readyState
+          };
+        });
+        console.log('🔧 DEBUG: Page content check:', hasContent);
+        
+        // Export screenshot HTML to file for debugging
+        if (process.env.DEBUG_HEADLESS === 'false') {
+          const fs = require('fs');
+          const path = require('path');
+          const screenshotHtmlFile = path.join('/tmp', `screenshot_html_${snapshotId}.html`);
+          fs.writeFileSync(screenshotHtmlFile, pageContent);
+          console.log('🔧 DEBUG: Screenshot HTML exported to:', screenshotHtmlFile);
+        }
+        
+        console.log('🔧 DEBUG: Taking screenshot now...');
+        
         // Take PNG screenshot (PNG format works, WebP produces blank images)
         const screenshotBuffer = await page.screenshot({
           fullPage: true,
@@ -238,6 +322,15 @@ class BrowserService {
           format: 'png',
           viewport: `${viewportWidth}x${viewportHeight}`
         });
+        
+        // Export screenshot to file for debugging
+        if (process.env.DEBUG_HEADLESS === 'false') {
+          const fs = require('fs');
+          const path = require('path');
+          const screenshotFile = path.join('/tmp', `debug_screenshot_${snapshotId}.png`);
+          fs.writeFileSync(screenshotFile, screenshotBuffer);
+          console.log('🔧 DEBUG: Screenshot exported to:', screenshotFile);
+        }
 
         // Save screenshot to database
         await this.saveScreenshot(snapshotId, screenshotBuffer, {
@@ -273,106 +366,26 @@ class BrowserService {
   }
 
   buildCompleteHtml(decompressedSnapshot, originalSnapshot) {
-
     // Check if we have valid HTML content
     if (!decompressedSnapshot.html || decompressedSnapshot.html.trim().length === 0) {
       throw new Error('No HTML content available for screenshot generation');
     }
 
-    // Extract existing head content and body content using simple regex
-    let existingHead = '';
-    let bodyContent = decompressedSnapshot.html;
+    // DEBUG MODE: Return raw HTML as-is first to test basic rendering
+    console.log('🔧 DEBUG: Using raw HTML without reconstruction');
+    console.log('🔧 DEBUG: HTML length:', decompressedSnapshot.html.length);
+    console.log('🔧 DEBUG: HTML preview (first 500 chars):', decompressedSnapshot.html.substring(0, 500));
     
-    try {
-      // Extract head content
-      const headMatch = decompressedSnapshot.html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
-      if (headMatch) {
-        existingHead = headMatch[1];
-      }
-      
-      // Extract body content
-      const bodyMatch = decompressedSnapshot.html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-      if (bodyMatch) {
-        bodyContent = `<body${decompressedSnapshot.html.match(/<body[^>]*>/i)?.[0].slice(5) || '>'}${bodyMatch[1]}</body>`;
-      } else {
-        // If no body tag, use the whole HTML as body content
-        bodyContent = decompressedSnapshot.html;
-      }
-    } catch (e) {
-      console.warn('⚠️ HTML extraction failed, using original content:', e.message);
-      existingHead = '';
-      bodyContent = decompressedSnapshot.html;
+    // Export HTML to file for manual inspection if in debug mode
+    if (process.env.DEBUG_HEADLESS === 'false') {
+      const fs = require('fs');
+      const path = require('path');
+      const debugFile = path.join('/tmp', `debug_html_${originalSnapshot.id}.html`);
+      fs.writeFileSync(debugFile, decompressedSnapshot.html);
+      console.log('🔧 DEBUG: Raw HTML exported to:', debugFile);
     }
-
-    // Build the complete HTML with all styles and content
-    const finalHtml = `<!DOCTYPE html>
-<html lang="en" data-screenshot-capture="${originalSnapshot.id}" data-capture-time="${originalSnapshot.created_at}">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=${originalSnapshot.viewport_width || 1920}, initial-scale=1.0">
-    <meta name="screenshot-capture" content="true">
-    <meta name="snapshot-id" content="${originalSnapshot.id}">
-    <meta name="capture-timestamp" content="${originalSnapshot.created_at}">
-    <meta name="capture-url" content="${originalSnapshot.url || 'unknown'}">
-    <meta name="viewport-size" content="${originalSnapshot.viewport_width || 1920}x${originalSnapshot.viewport_height || 1080}">
     
-    <!-- Minimal security headers for screenshot generation - scripts already disabled at browser level -->
-    <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="Referrer-Policy" content="no-referrer">
-    
-    <!-- Original head content preserved -->
-    ${existingHead}
-    
-    <!-- Captured CSS Styles -->
-    <style type="text/css" data-snapshot-styles="true">
-/* ========================================= */
-/* CAPTURED CSS STYLES                      */  
-/* Snapshot ID: ${originalSnapshot.id} */
-/* Captured: ${originalSnapshot.created_at} */
-/* ========================================= */
-
-${decompressedSnapshot.css || '/* No CSS styles were captured */'}
-
-/* ========================================= */
-/* Viewport Setup for Screenshot            */
-/* ========================================= */
-html {
-    width: ${originalSnapshot.viewport_width || 1920}px !important;
-    min-height: ${originalSnapshot.viewport_height || 1080}px !important;
-    overflow-x: hidden !important;
-    overflow-y: hidden !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-body {
-    margin: 0 !important;
-    padding: 0 !important;
-    min-width: ${originalSnapshot.viewport_width || 1920}px !important;
-    min-height: ${originalSnapshot.viewport_height || 1080}px !important;
-    box-sizing: border-box !important;
-    overflow: hidden !important;
-}
-
-/* Prevent any layout shifts */
-*, *::before, *::after {
-    box-sizing: border-box !important;
-}
-
-/* Ensure page has a white background by default */
-html, body {
-    background-color: white !important;
-}
-    </style>
-    
-    <title>Screenshot Capture - ${originalSnapshot.id}</title>
-</head>
-
-${bodyContent || '<body><h1>No content available</h1><p>The snapshot HTML content could not be rendered.</p></body>'}
-
-</html>`;
-    
-    return finalHtml;
+    return decompressedSnapshot.html;
   }
 
   buildAlternativeHtml(decompressedSnapshot, originalSnapshot) {
