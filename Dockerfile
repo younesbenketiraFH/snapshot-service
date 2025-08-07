@@ -1,6 +1,6 @@
 FROM node:18-alpine
 
-# Install SQLite and Puppeteer dependencies
+# Install SQLite, Puppeteer dependencies, and system fonts
 RUN apk add --no-cache \
     sqlite \
     chromium \
@@ -10,6 +10,9 @@ RUN apk add --no-cache \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
+    ttf-dejavu \
+    ttf-liberation \
+    fontconfig \
     curl
 
 # Tell Puppeteer to use installed Chromium

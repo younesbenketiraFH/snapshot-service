@@ -184,6 +184,27 @@ class BrowserService {
 
       const page = await browserInstance.browser.newPage();
       
+      // Capture console messages and errors from the page
+      page.on('console', msg => {
+        const type = msg.type();
+        const text = msg.text();
+        console.log(`🌐 Browser Console [${type.toUpperCase()}]:`, text);
+      });
+      
+      page.on('pageerror', error => {
+        console.error('🚨 Browser Page Error:', error.message);
+      });
+      
+      page.on('requestfailed', request => {
+        console.warn('⚠️ Browser Request Failed:', request.url(), request.failure()?.errorText);
+      });
+      
+      page.on('response', response => {
+        if (!response.ok()) {
+          console.warn('⚠️ Browser Response Error:', response.status(), response.url());
+        }
+      });
+      
       try {
         // Set viewport to match original capture
         const viewportWidth = snapshot.viewport_width || 1920;
@@ -206,8 +227,8 @@ class BrowserService {
         
         // Load the HTML content directly into the page
         await page.setContent(fullHtml, {
-          waitUntil: 'domcontentloaded', // Changed from networkidle0 for faster debugging
-          timeout: 30000 // Reduced timeout for debugging
+          waitUntil: 'domcontentloaded',
+          timeout: 30000
         });
         
         console.log('🔧 DEBUG: HTML loaded into page successfully');
@@ -264,7 +285,7 @@ class BrowserService {
         }
 
         // Simple timeout wait for rendering
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 12000));
         
         // Debug: Check what's actually visible on the page
         const renderingDebug = await page.evaluate(() => {
@@ -434,21 +455,30 @@ class BrowserService {
       throw new Error('No HTML content available for screenshot generation');
     }
 
-    // DEBUG MODE: Return raw HTML as-is first to test basic rendering
-    console.log('🔧 DEBUG: Using raw HTML without reconstruction');
-    console.log('🔧 DEBUG: HTML length:', decompressedSnapshot.html.length);
-    console.log('🔧 DEBUG: HTML preview (first 500 chars):', decompressedSnapshot.html.substring(0, 500));
+    // Replace justfly.dev URLs with justfly.com to fix connection issues
+    let processedHtml = decompressedSnapshot.html;
+    const devUrlCount = (processedHtml.match(/justfly\.dev/g) || []).length;
+    
+    if (devUrlCount > 0) {
+      console.log(`🔧 DEBUG: Found ${devUrlCount} justfly.dev URLs, replacing with justfly.com`);
+      processedHtml = processedHtml.replace(/justfly\.dev/g, 'justfly.com');
+      console.log('🔧 DEBUG: URL replacement completed');
+    }
+
+    console.log('🔧 DEBUG: Using processed HTML');
+    console.log('🔧 DEBUG: HTML length:', processedHtml.length);
+    console.log('🔧 DEBUG: HTML preview (first 500 chars):', processedHtml.substring(0, 500));
     
     // Export HTML to file for manual inspection if in debug mode
     if (process.env.DEBUG_HEADLESS === 'false') {
       const fs = require('fs');
       const path = require('path');
       const debugFile = path.join('/tmp', `debug_html_${originalSnapshot.id}.html`);
-      fs.writeFileSync(debugFile, decompressedSnapshot.html);
-      console.log('🔧 DEBUG: Raw HTML exported to:', debugFile);
+      fs.writeFileSync(debugFile, processedHtml);
+      console.log('🔧 DEBUG: Processed HTML exported to:', debugFile);
     }
     
-    return decompressedSnapshot.html;
+    return processedHtml;
   }
 
   buildAlternativeHtml(decompressedSnapshot, originalSnapshot) {

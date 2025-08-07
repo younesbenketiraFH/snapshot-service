@@ -19,6 +19,12 @@ services:
     restart: unless-stopped
     networks:
       - snapshot-network
+    # Add host mapping for justfly.dev domains
+    extra_hosts:
+      - "www.justfly.dev:host-gateway"
+      - "justfly.dev:host-gateway"
+    # Increase shared memory for Chromium rendering
+    shm_size: 1g
 
   redis:
     image: redis:7-alpine
