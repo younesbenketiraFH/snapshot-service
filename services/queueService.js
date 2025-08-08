@@ -1,7 +1,6 @@
 const { Queue, Worker } = require('bullmq');
 const Redis = require('ioredis');
 const Database = require('../database');
-const CompressionUtils = require('../compression');
 const BrowserService = require('./browserService');
 const { logger } = require('../logger');
 
@@ -160,9 +159,9 @@ class SnapshotQueue {
             // Update job progress
             await job.updateProgress(10);
 
-            // Fetch compressed snapshot from database
-            const compressedSnapshot = await this.db.getSnapshot(snapshotId);
-            if (!compressedSnapshot) {
+            // Fetch snapshot from database
+            const snapshot = await this.db.getSnapshot(snapshotId);
+            if (!snapshot) {
                 throw new Error(`Snapshot not found: ${snapshotId}`);
             }
 
@@ -170,11 +169,6 @@ class SnapshotQueue {
 
             // Update status to processing
             await this.db.updateSnapshotStatus(snapshotId, 'processing');
-
-            await job.updateProgress(40);
-
-            // Use raw snapshot data
-            let decompressedSnapshot = compressedSnapshot;
 
             await job.updateProgress(70);
 
@@ -208,8 +202,7 @@ class SnapshotQueue {
                 snapshotId,
                 status: 'completed',
                 processingTimeMs: processingTime,
-                decompressedHtmlSize: decompressedSnapshot.html?.length || 0,
-                decompressedCssSize: decompressedSnapshot.css?.length || 0,
+                htmlSize: snapshot.html?.length || 0,
                 screenshotGenerated,
                 domDataCleaned,
                 metadata

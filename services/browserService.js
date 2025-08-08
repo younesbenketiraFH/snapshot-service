@@ -1,6 +1,5 @@
 const puppeteer = require('puppeteer');
 const Database = require('../database');
-const CompressionUtils = require('../compression');
 const { logger } = require('../logger');
 
 class BrowserService {
@@ -176,10 +175,9 @@ class BrowserService {
         throw new Error(`Snapshot ${snapshotId} not found`);
       }
 
-      // Use raw snapshot data
-      let decompressedSnapshot = snapshot;
+      // Use snapshot data directly
 
-      if (!decompressedSnapshot.html) {
+      if (!snapshot.html) {
         throw new Error(`No HTML content available for snapshot ${snapshotId}`);
       }
 
@@ -222,8 +220,8 @@ class BrowserService {
           deviceScaleFactor: options.deviceScaleFactor || 1
         });
 
-        // Create the complete HTML with CSS styles
-        const fullHtml = this.buildCompleteHtml(decompressedSnapshot, snapshot);
+        // Create the complete HTML
+        const fullHtml = this.buildCompleteHtml(snapshot);
         
         logger.debug('🔧 DEBUG: Final HTML length:', fullHtml.length);
         logger.debug('🔧 DEBUG: About to load HTML into page...');
@@ -375,14 +373,14 @@ class BrowserService {
     }
   }
 
-  buildCompleteHtml(decompressedSnapshot, originalSnapshot) {
+  buildCompleteHtml(snapshot) {
     // Check if we have valid HTML content
-    if (!decompressedSnapshot.html || decompressedSnapshot.html.trim().length === 0) {
+    if (!snapshot.html || snapshot.html.trim().length === 0) {
       throw new Error('No HTML content available for screenshot generation');
     }
 
     // Replace justfly.dev URLs with justfly.com to fix connection issues
-    let processedHtml = decompressedSnapshot.html;
+    let processedHtml = snapshot.html;
     const devUrlCount = (processedHtml.match(/justfly\.dev/g) || []).length;
     
     if (devUrlCount > 0) {
@@ -399,7 +397,7 @@ class BrowserService {
     if (process.env.DEBUG_HEADLESS === 'false') {
       const fs = require('fs');
       const path = require('path');
-      const debugFile = path.join('/tmp', `debug_html_${originalSnapshot.id}.html`);
+      const debugFile = path.join('/tmp', `debug_html_${snapshot.id}.html`);
       fs.writeFileSync(debugFile, processedHtml);
       logger.debug('🔧 DEBUG: Processed HTML exported to:', debugFile);
     }
@@ -407,28 +405,6 @@ class BrowserService {
     return processedHtml;
   }
 
-  buildAlternativeHtml(decompressedSnapshot, originalSnapshot) {
-    // Alternative approach: Keep the original HTML structure but inject CSS more directly
-    let html = decompressedSnapshot.html;
-    
-    // If there's CSS, try to inject it at the very beginning of the head
-    if (decompressedSnapshot.css) {
-      const cssInline = `<style type="text/css">\n${decompressedSnapshot.css}\n</style>`;
-      
-      // Try to inject right after the opening head tag
-      if (html.includes('<head>')) {
-        html = html.replace('<head>', `<head>\n${cssInline}`);
-      } else if (html.includes('<head ')) {
-        html = html.replace(/<head[^>]*>/, match => `${match}\n${cssInline}`);
-      } else {
-        // If no head tag, add CSS at the very beginning
-        html = `<!DOCTYPE html><html><head>${cssInline}</head><body>${html}</body></html>`;
-      }
-    }
-    
-    logger.debug(`🔧 Alternative HTML built: ${html.length} chars, CSS injected: ${!!decompressedSnapshot.css}`);
-    return html;
-  }
 
   async saveScreenshot(snapshotId, screenshotBuffer, metadata) {
     return new Promise((resolve, reject) => {

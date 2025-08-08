@@ -34,14 +34,6 @@ class Database {
         CREATE TABLE IF NOT EXISTS snapshots (
           id TEXT PRIMARY KEY,
           html TEXT,
-          css TEXT,
-          html_compressed BLOB,
-          css_compressed BLOB,
-          compression_type TEXT DEFAULT 'none',
-          original_html_size INTEGER DEFAULT 0,
-          original_css_size INTEGER DEFAULT 0,
-          compressed_html_size INTEGER DEFAULT 0,
-          compressed_css_size INTEGER DEFAULT 0,
           url TEXT,
           viewport_width INTEGER,
           viewport_height INTEGER,
@@ -118,36 +110,22 @@ class Database {
   async saveSnapshot(snapshotData) {
     return new Promise((resolve, reject) => {
       const { 
-        id, html, css, url, viewport, options,
-        htmlCompressed, cssCompressed, compressionType,
-        originalHtmlSize, originalCssSize,
-        compressedHtmlSize, compressedCssSize,
+        id, html, url, viewport, options,
         queueJobId, processingStatus,
         type, searchId, hashKey, siteId, checkoutId, cartId, clientData
       } = snapshotData;
       
       const sql = `
         INSERT INTO snapshots (
-          id, html, css, html_compressed, css_compressed,
-          compression_type, original_html_size, original_css_size,
-          compressed_html_size, compressed_css_size,
-          url, viewport_width, viewport_height, options,
+          id, html, url, viewport_width, viewport_height, options,
           queue_job_id, processing_status,
           type, search_id, hash_key, site_id, checkout_id, cart_id, client_data
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const params = [
         id,
         html || null,
-        css || null,
-        htmlCompressed || null,
-        cssCompressed || null,
-        compressionType || 'none',
-        originalHtmlSize || 0,
-        originalCssSize || 0,
-        compressedHtmlSize || 0,
-        compressedCssSize || 0,
         url || null,
         viewport?.width || null,
         viewport?.height || null,
@@ -237,7 +215,7 @@ class Database {
     return new Promise((resolve, reject) => {
       const sql = `
         SELECT id, url, viewport_width, viewport_height, created_at, 
-               length(html) as html_size, length(css) as css_size,
+               length(html) as html_size,
                search_id, type
         FROM snapshots 
         ORDER BY created_at DESC 
@@ -261,7 +239,6 @@ class Database {
         SELECT 
           COUNT(*) AS total_snapshots,
           SUM(length(html)) AS total_html_bytes,
-          SUM(length(css)) AS total_css_bytes,
           SUM(CASE WHEN screenshot IS NOT NULL THEN 1 ELSE 0 END) AS screenshots_count,
           SUM(CASE WHEN screenshot IS NOT NULL THEN length(screenshot) ELSE 0 END) AS total_screenshot_bytes,
           MIN(created_at) AS oldest,
@@ -302,9 +279,6 @@ class Database {
       const sql = `
         UPDATE snapshots 
         SET html = NULL,
-            css = NULL,
-            html_compressed = NULL,
-            css_compressed = NULL,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `;

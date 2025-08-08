@@ -1,8 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const CompressionUtils = require('../compression');
 const { logger } = require('../logger');
-const { JSDOM, VirtualConsole } = require('jsdom');
 
 // Snapshot controller will receive dependencies via middleware
 let db, snapshotQueue, browserService;
@@ -17,7 +15,7 @@ router.use((req, res, next) => {
 
 // POST /snapshot - Create new snapshot
 router.post('/snapshot', async (req, res) => {
-  const { html, css, options } = req.body;
+  const { html, options } = req.body;
   
   if (!html) {
     return res.status(400).json(false);
@@ -28,7 +26,6 @@ router.post('/snapshot', async (req, res) => {
   logger.info('📥 Received snapshot request:', {
     id: snapshotId,
     htmlLength: html.length,
-    cssLength: css ? css.length : 0,
     options: options || {}
   });
 
@@ -47,21 +44,13 @@ router.post('/snapshot', async (req, res) => {
       cartId: clientData?.cartId ?? clientData?.cart_id ?? flatten.cartId ?? flatten.cart_id,
       clientData: clientData || (Object.keys(flatten || {}).length ? flatten : null)
     };
-    // Prepare data for database (raw content only)
+    // Prepare data for database
     const snapshotData = {
       id: snapshotId,
       html: html,
-      css: css,
       url: options?.url,
       viewport: options?.viewport,
       options: options,
-      htmlCompressed: null,
-      cssCompressed: null,
-      compressionType: 'none',
-      originalHtmlSize: html.length,
-      originalCssSize: css ? css.length : 0,
-      compressedHtmlSize: 0,
-      compressedCssSize: 0,
       processingStatus: 'queued',
       type: mapped.type,
       searchId: mapped.searchId,
@@ -81,9 +70,7 @@ router.post('/snapshot', async (req, res) => {
       metadata: {
         url: options?.url,
         viewport: options?.viewport,
-        compressionType: 'none',
-        htmlSize: html.length,
-        cssSize: css ? css.length : 0
+        htmlSize: html.length
       }
     });
 
@@ -94,8 +81,7 @@ router.post('/snapshot', async (req, res) => {
       id: snapshotId,
       jobId: queueJob.jobId,
       searchId: mapped.searchId,
-      htmlSize: html.length,
-      cssSize: css ? css.length : 0
+      htmlSize: html.length
     });
 
     res.json(true);
@@ -137,14 +123,9 @@ router.get('/snapshots/:id', async (req, res) => {
       });
     }
 
-    // Decompress if needed for API response, otherwise use raw data
+    // Use raw snapshot data
     let responseSnapshot = snapshot;
-    if (snapshot.html_compressed || snapshot.css_compressed) {
-      logger.info('🗜️ Decompressing snapshot for API response:', snapshot.id);
-      responseSnapshot = await CompressionUtils.decompressSnapshot(snapshot);
-    } else {
-      logger.info('Returning snapshot data:', snapshot.id);
-    }
+    logger.info('Returning snapshot data:', snapshot.id);
 
     res.json({
       success: true,
@@ -296,11 +277,8 @@ router.get('/render/:id', async (req, res) => {
       `);
     }
 
-    // Use raw snapshot data directly
-    let decompressedSnapshot = snapshot;
-
     // Check if DOM data exists
-    if (!decompressedSnapshot.html) {
+    if (!snapshot.html) {
       return res.status(410).send('DOM data not available');
     }
 
@@ -313,7 +291,7 @@ router.get('/render/:id', async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     
-    res.send(decompressedSnapshot.html);
+    res.send(snapshot.html);
     
   } catch (error) {
     logger.error('Error rendering snapshot:', error);
