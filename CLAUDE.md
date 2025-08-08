@@ -37,6 +37,11 @@ This is a **legal evidence DOM snapshot service** designed for capturing and pre
 - **Credit Card Security**: Automatic masking of credit card numbers and CVV codes in captured DOM
 - **Legal Evidence Accuracy**: Captured DOM reflects exact user interactions and form states
 
+- **Client Data Parity with SnapshotHelperV2**: Ingestion now reads identifiers from `options.clientDataDuringSnapshot` (or `options.clientData` / flattened `options`). Fields mapped and stored: `type`, `searchId`, `hashKey`, `siteId/sideId`, `checkoutId`, `cartId`, plus full `client_data` JSON.
+- **Schema Evolution**: Added `type`, `search_id`, `hash_key`, `site_id`, `checkout_id`, `cart_id`, `client_data` columns and indexes on `search_id` and `type`.
+- **Dashboard Metadata**: Snapshot detail shows all clientDataDuringSnapshot fields, and key IDs even when missing (as `NULL`). Timestamps display as UTC and EST/EDT on separate lines.
+- **Queue Chart UX**: Custom time range (incl. fully custom start/end), auto bucket sizing, better X-axis labels, headroom on bars, totals above bars, side tooltip with non-zero states only, accurate windowed counts under the chart.
+
 
 ## Architecture
 

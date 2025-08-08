@@ -20,7 +20,7 @@ router.post('/snapshot', async (req, res) => {
   const { html, css, options } = req.body;
   
   if (!html) {
-    return res.status(400).json({ error: 'HTML content is required' });
+    return res.status(400).json(false);
   }
   
   const snapshotId = `snapshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -98,27 +98,11 @@ router.post('/snapshot', async (req, res) => {
       cssSize: css ? css.length : 0
     });
 
-    res.json({
-      success: true,
-      message: 'Snapshot saved and queued for processing',
-      id: snapshotId,
-      jobId: queueJob.jobId,
-      queuePosition: queueJob.queuePosition,
-      size: {
-        htmlSize: html.length,
-        cssSize: css ? css.length : 0,
-        totalSize: html.length + (css ? css.length : 0)
-      },
-      timestamp: new Date().toISOString()
-    });
+    res.json(true);
 
   } catch (error) {
     logger.error('❌ Error processing snapshot:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to process snapshot',
-      message: error.message
-    });
+    res.status(500).json(false);
   }
 });
 
