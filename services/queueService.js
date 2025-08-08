@@ -242,25 +242,24 @@ class SnapshotQueue {
      */
     async getQueueStats() {
         try {
-            const [waiting, active, completed, failed, delayed] = await Promise.all([
-                this.queue.getWaiting(),
-                this.queue.getActive(),
-                this.queue.getCompleted(),
-                this.queue.getFailed(),
-                this.queue.getDelayed()
-            ]);
-
+            // Use O(1) counts from Redis to avoid pagination limits on getCompleted/getFailed, etc.
+            const counts = await this.queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
+            const waiting = counts.waiting || 0;
+            const active = counts.active || 0;
+            const completed = counts.completed || 0;
+            const failed = counts.failed || 0;
+            const delayed = counts.delayed || 0;
             return {
-                waiting: waiting.length,
-                active: active.length,
-                completed: completed.length,
-                failed: failed.length,
-                delayed: delayed.length,
-                total: waiting.length + active.length + completed.length + failed.length + delayed.length
+                waiting,
+                active,
+                completed,
+                failed,
+                delayed,
+                total: waiting + active + completed + failed + delayed
             };
         } catch (error) {
             logger.error('Error getting queue stats:', error);
-            return null;
+            return { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, total: 0 };
         }
     }
 

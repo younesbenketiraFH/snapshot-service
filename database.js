@@ -67,6 +67,20 @@ class Database {
         CREATE INDEX IF NOT EXISTS idx_snapshots_status ON snapshots(processing_status);
         CREATE INDEX IF NOT EXISTS idx_snapshots_job_id ON snapshots(queue_job_id);
       `;
+      // Attempt to evolve schema with new columns; ignore errors if they already exist
+      const alterStatements = [
+        "ALTER TABLE snapshots ADD COLUMN type TEXT",
+        "ALTER TABLE snapshots ADD COLUMN search_id TEXT",
+        "ALTER TABLE snapshots ADD COLUMN hash_key TEXT",
+        "ALTER TABLE snapshots ADD COLUMN site_id TEXT",
+        "ALTER TABLE snapshots ADD COLUMN checkout_id TEXT",
+        "ALTER TABLE snapshots ADD COLUMN cart_id TEXT",
+        "ALTER TABLE snapshots ADD COLUMN client_data TEXT"
+      ];
+      const addNewIndexes = `
+        CREATE INDEX IF NOT EXISTS idx_snapshots_search_id ON snapshots(search_id);
+        CREATE INDEX IF NOT EXISTS idx_snapshots_type ON snapshots(type);
+      `;
 
       this.db.serialize(() => {
         this.db.run(createSnapshotsTable, (err) => {
@@ -81,8 +95,20 @@ class Database {
             logger.error('Error creating indexes:', err);
             return reject(err);
           }
-          
-          resolve();
+          // Run ALTER statements sequentially but ignore duplicate column errors
+          alterStatements.forEach(stmt => {
+            this.db.run(stmt, (e) => {
+              if (e && !String(e.message).includes('duplicate column name')) {
+                logger.warn('Schema alter warning:', e.message);
+              }
+            });
+          });
+          this.db.run(addNewIndexes, (e2) => {
+            if (e2) {
+              logger.warn('Index creation warning:', e2.message);
+            }
+            resolve();
+          });
         });
       });
     });
@@ -96,7 +122,8 @@ class Database {
         htmlCompressed, cssCompressed, compressionType,
         originalHtmlSize, originalCssSize,
         compressedHtmlSize, compressedCssSize,
-        queueJobId, processingStatus
+        queueJobId, processingStatus,
+        type, searchId, hashKey, siteId, checkoutId, cartId, clientData
       } = snapshotData;
       
       const sql = `
@@ -105,8 +132,9 @@ class Database {
           compression_type, original_html_size, original_css_size,
           compressed_html_size, compressed_css_size,
           url, viewport_width, viewport_height, options,
-          queue_job_id, processing_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          queue_job_id, processing_status,
+          type, search_id, hash_key, site_id, checkout_id, cart_id, client_data
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const params = [
@@ -125,7 +153,14 @@ class Database {
         viewport?.height || null,
         options ? JSON.stringify(options) : null,
         queueJobId || null,
-        processingStatus || 'pending'
+        processingStatus || 'pending',
+        type || null,
+        searchId || null,
+        hashKey || null,
+        siteId || null,
+        checkoutId || null,
+        cartId || null,
+        clientData ? JSON.stringify(clientData) : null
       ];
 
       this.db.run(sql, params, function(err) {
@@ -202,7 +237,8 @@ class Database {
     return new Promise((resolve, reject) => {
       const sql = `
         SELECT id, url, viewport_width, viewport_height, created_at, 
-               length(html) as html_size, length(css) as css_size
+               length(html) as html_size, length(css) as css_size,
+               search_id, type
         FROM snapshots 
         ORDER BY created_at DESC 
         LIMIT ?

@@ -108,13 +108,21 @@ class SnapshotDashboard {
             <div class="snapshot-card" data-id="${snapshot.id}">
                 <div class="snapshot-card-header">
                     <div class="snapshot-id">${this.truncateId(snapshot.id)}</div>
-                    <div class="snapshot-timestamp">${this.formatTimestamp(snapshot.created_at)}</div>
+                    <div class="snapshot-timestamp">${this.formatTimestampEST(snapshot.created_at)}</div>
                 </div>
                 <div class="snapshot-url">${snapshot.url || 'No URL available'}</div>
                 <div class="snapshot-meta">
                     <div class="meta-item">
                         <span class="meta-label">Viewport</span>
                         ${snapshot.viewport_width}x${snapshot.viewport_height}
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Search ID</span>
+                        ${snapshot.search_id || '—'}
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Type</span>
+                        ${snapshot.type || '—'}
                     </div>
                     <div class="meta-item">
                         <span class="meta-label">HTML Size</span>
@@ -161,36 +169,100 @@ class SnapshotDashboard {
         // Update title and metadata
         document.getElementById('snapshot-title').textContent = `Snapshot: ${this.truncateId(snapshot.id)}`;
         
-        // Render metadata
+        // Render metadata (hide missing fields and drop HTML/CSS sizes)
         const metadataContainer = document.getElementById('snapshot-metadata');
-        metadataContainer.innerHTML = `
-            <div class="metadata-grid">
-                <div class="metadata-item">
-                    <div class="metadata-label">Snapshot ID</div>
-                    <div class="metadata-value">${snapshot.id}</div>
+        const items = [];
+        items.push(`
+            <div class="metadata-item">
+                <div class="metadata-label">Snapshot ID</div>
+                <div class="metadata-value">${snapshot.id}</div>
+            </div>
+        `);
+        items.push(`
+            <div class="metadata-item">
+                <div class="metadata-label">Captured URL</div>
+                <div class="metadata-value">${snapshot.url || 'Not available'}</div>
+            </div>
+        `);
+        items.push(`
+            <div class="metadata-item">
+                <div class="metadata-label">Timestamp</div>
+                <div class="metadata-value">
+                    <div><strong>UTC</strong></div>
+                    <div>${this.formatTimestampUTC(snapshot.created_at)}</div>
+                    <div style="margin-top:6px;"><strong>EST/EDT</strong></div>
+                    <div>${this.formatTimestampEST(snapshot.created_at)}</div>
                 </div>
-                <div class="metadata-item">
-                    <div class="metadata-label">Captured URL</div>
-                    <div class="metadata-value">${snapshot.url || 'Not available'}</div>
-                </div>
-                <div class="metadata-item">
-                    <div class="metadata-label">Timestamp</div>
-                    <div class="metadata-value">${this.formatTimestamp(snapshot.created_at)}</div>
-                </div>
+            </div>
+        `);
+        if (snapshot.viewport_width && snapshot.viewport_height) {
+            items.push(`
                 <div class="metadata-item">
                     <div class="metadata-label">Viewport Size</div>
                     <div class="metadata-value">${snapshot.viewport_width}x${snapshot.viewport_height}px</div>
                 </div>
-                <div class="metadata-item">
-                    <div class="metadata-label">HTML Size</div>
-                    <div class="metadata-value">${this.formatBytes(snapshot.html?.length || 0)}</div>
-                </div>
-                <div class="metadata-item">
-                    <div class="metadata-label">CSS Size</div>
-                    <div class="metadata-value">${this.formatBytes(snapshot.css?.length || 0)}</div>
-                </div>
+            `);
+        }
+        // Always show key identifiers; display NULL if missing
+        items.push(`
+            <div class="metadata-item">
+                <div class="metadata-label">Type</div>
+                <div class="metadata-value">${snapshot.type || 'NULL'}</div>
             </div>
-        `;
+        `);
+        // Show all clientDataDuringSnapshot fields if present
+        const client = snapshot.options?.clientData || snapshot.options?.clientDataDuringSnapshot;
+        if (client) {
+            const pairs = Object.entries(client);
+            pairs.forEach(([k, v]) => {
+                const safeK = String(k);
+                let safeV;
+                if (v == null) {
+                    safeV = 'NULL';
+                } else if (typeof v === 'object') {
+                    try { safeV = JSON.stringify(v); } catch { safeV = String(v); }
+                } else {
+                    safeV = String(v);
+                }
+                items.push(`
+                    <div class="metadata-item">
+                        <div class="metadata-label">client.${safeK}</div>
+                        <div class="metadata-value">${safeV}</div>
+                    </div>
+                `);
+            });
+        }
+        items.push(`
+            <div class="metadata-item">
+                <div class="metadata-label">Search ID</div>
+                <div class="metadata-value">${snapshot.search_id || 'NULL'}</div>
+            </div>
+        `);
+        items.push(`
+            <div class="metadata-item">
+                <div class="metadata-label">Checkout ID</div>
+                <div class="metadata-value">${snapshot.checkout_id || 'NULL'}</div>
+            </div>
+        `);
+        items.push(`
+            <div class="metadata-item">
+                <div class="metadata-label">Cart ID</div>
+                <div class="metadata-value">${snapshot.cart_id || 'NULL'}</div>
+            </div>
+        `);
+        items.push(`
+            <div class="metadata-item">
+                <div class="metadata-label">Site ID</div>
+                <div class="metadata-value">${snapshot.site_id || 'NULL'}</div>
+            </div>
+        `);
+        items.push(`
+            <div class="metadata-item">
+                <div class="metadata-label">Hash Key</div>
+                <div class="metadata-value">${snapshot.hash_key || 'NULL'}</div>
+            </div>
+        `);
+        metadataContainer.innerHTML = `<div class="metadata-grid">${items.join('\n')}</div>`;
         
         // Load screenshot tab by default
         this.loadScreenshot();
@@ -352,6 +424,24 @@ class SnapshotDashboard {
     formatTimestamp(timestamp) {
         const date = new Date(timestamp);
         return date.toLocaleString();
+    }
+
+    formatTimestampEST(timestamp) {
+        const date = new Date(timestamp);
+        return date.toLocaleString('en-US', {
+            timeZone: 'America/New_York',
+            year: 'numeric', month: 'short', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+    }
+
+    formatTimestampUTC(timestamp) {
+        const date = new Date(timestamp);
+        return date.toLocaleString('en-US', {
+            timeZone: 'UTC',
+            year: 'numeric', month: 'short', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
     }
 
     formatBytes(bytes) {

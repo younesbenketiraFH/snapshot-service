@@ -33,6 +33,20 @@ router.post('/snapshot', async (req, res) => {
   });
 
   try {
+    // Extract client data from multiple possible shapes
+    // 1) Nested: options.clientData or options.clientDataDuringSnapshot (preferred)
+    // 2) Flattened directly on options (fallback)
+    const clientData = options?.clientData || options?.clientDataDuringSnapshot || null;
+    const flatten = options || {};
+    const mapped = {
+      type: clientData?.type ?? flatten.type,
+      searchId: clientData?.searchId ?? clientData?.search_id ?? flatten.searchId ?? flatten.search_id,
+      hashKey: clientData?.hashKey ?? clientData?.hash_key ?? flatten.hashKey ?? flatten.hash_key,
+      siteId: clientData?.siteId ?? clientData?.sideId ?? clientData?.site_id ?? flatten.siteId ?? flatten.sideId ?? flatten.site_id,
+      checkoutId: clientData?.checkoutId ?? clientData?.checkout_id ?? flatten.checkoutId ?? flatten.checkout_id,
+      cartId: clientData?.cartId ?? clientData?.cart_id ?? flatten.cartId ?? flatten.cart_id,
+      clientData: clientData || (Object.keys(flatten || {}).length ? flatten : null)
+    };
     // Prepare data for database (raw content only)
     const snapshotData = {
       id: snapshotId,
@@ -48,7 +62,14 @@ router.post('/snapshot', async (req, res) => {
       originalCssSize: css ? css.length : 0,
       compressedHtmlSize: 0,
       compressedCssSize: 0,
-      processingStatus: 'queued'
+      processingStatus: 'queued',
+      type: mapped.type,
+      searchId: mapped.searchId,
+      hashKey: mapped.hashKey,
+      siteId: mapped.siteId,
+      checkoutId: mapped.checkoutId,
+      cartId: mapped.cartId,
+      clientData: mapped.clientData
     };
 
     // Save to database
@@ -72,6 +93,7 @@ router.post('/snapshot', async (req, res) => {
     logger.info('✅ Snapshot saved and queued:', {
       id: snapshotId,
       jobId: queueJob.jobId,
+      searchId: mapped.searchId,
       htmlSize: html.length,
       cssSize: css ? css.length : 0
     });
